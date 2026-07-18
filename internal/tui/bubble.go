@@ -160,6 +160,11 @@ func NewBubbleWithBanner(ctx context.Context, e *engine.Engine, c *commands.Regi
 	b := &Bubble{engine: e, cmds: c, goals: g, ctx: ctx, input: ti, spin: sp,
 		curAsst: -1,
 		version: info.Version, user: info.User, cwd: info.Cwd, effort: info.Effort}
+	// Seed scrollback from any pre-loaded history (bankai -c / --resume into the
+	// TUI) so the conversation is visible, not just held in engine.Messages.
+	if len(e.Messages) > 0 {
+		b.blocks = renderHistory(e.Messages)
+	}
 	// banner is seeded on the first WindowSizeMsg, once width is known so the
 	// header box borders align to the terminal.
 	return b

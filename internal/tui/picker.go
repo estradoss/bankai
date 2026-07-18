@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/estradoss/bankai/internal/agent"
 	"github.com/estradoss/bankai/internal/transcript"
 )
 
@@ -151,15 +152,40 @@ func (b *Bubble) resumeSession(id string) error {
 		tw.SetParent(res.LastUUID)
 		b.engine.Transcript = tw
 	}
-	b.blocks = nil
 	b.curAsst = -1
 	label := id
 	if len(label) > 8 {
 		label = label[:8]
 	}
+	// Rebuild the scrollback from the loaded history so it's visible, not just
+	// held in engine.Messages.
+	b.blocks = renderHistory(res.Messages)
 	b.pushBlock(blockNotice, fmt.Sprintf("resumed session %s — %d messages loaded", label, len(res.Messages)))
 	b.refresh()
 	return nil
+}
+
+// renderHistory converts a loaded message chain into display blocks.
+func renderHistory(msgs []agent.Message) []block {
+	var out []block
+	for _, m := range msgs {
+		for _, c := range m.Content {
+			switch c.Type {
+			case "text":
+				if strings.TrimSpace(c.Text) == "" {
+					continue
+				}
+				if m.Role == "assistant" {
+					out = append(out, block{kind: blockAssistant, text: c.Text})
+				} else {
+					out = append(out, block{kind: blockUser, text: c.Text})
+				}
+			case "tool_use":
+				out = append(out, block{kind: blockTool, text: prettyToolLine(c.Name, string(c.Input))})
+			}
+		}
+	}
+	return out
 }
 
 // listRecentSessions returns up to `limit` sessions for cwd's project, newest
