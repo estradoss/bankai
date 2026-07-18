@@ -87,7 +87,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
 13. [ ] **IDE integration** — VS Code / JetBrains bridge, selection, diff-in-IDE. `src/bridge/`.
 14. [~] **Full slash-command surface** — ongoing. Added `/permissions /limits /mcp /memory /pwd
        /tools /system` atop the existing set. (~100 remain from `src/commands/`.)
-15. [ ] **Feature-flag build system** — compile-time flag bundler equivalent to `scripts/build.ts`.
+15. [~] **Feature-flag system** — `internal/feature`: runtime analogue of vibelearn's compile-time
+       feature('FLAG'). Resolves flags from build defaults < BANKAI_FEATURES env < --feature CLI
+       (FLAG/+FLAG/-FLAG/FLAG=0 token forms). Gates SKILLS/MCP/LSP/MEMORY/PLUGINS/TASKS/TUI
+       subsystems; `/features` lists state. (Go favors runtime gating over compile-time bundling.)
 
 See `_vibelearn/learnvibe/FEATURES.md` for the complete flag/subsystem inventory.
 

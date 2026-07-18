@@ -38,6 +38,18 @@ func (Tools) Run(ctx Context, args string) (Result, error) {
 	return Result{Text: fmt.Sprintf("%d tools:\n  %s", len(names), strings.Join(names, "\n  "))}, nil
 }
 
+// Features lists resolved feature flags. The list is captured at startup.
+type Features struct{ Flags []string }
+
+func (Features) Name() string        { return "features" }
+func (Features) Description() string { return "List resolved feature flags" }
+func (f Features) Run(ctx Context, args string) (Result, error) {
+	if len(f.Flags) == 0 {
+		return Result{Text: "no feature flags"}, nil
+	}
+	return Result{Text: "feature flags:\n  " + strings.Join(f.Flags, "\n  ")}, nil
+}
+
 // Plugins lists loaded plugins (name, version, description). The list is
 // captured at startup and passed in so the command stays a pure reader.
 type Plugins struct{ Lines []string }

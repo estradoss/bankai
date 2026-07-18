@@ -15,6 +15,7 @@ import (
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/engine"
+	"github.com/estradoss/bankai/internal/feature"
 	"github.com/estradoss/bankai/internal/goal"
 	"github.com/estradoss/bankai/internal/lsp"
 	"github.com/estradoss/bankai/internal/mcp"
@@ -42,8 +43,18 @@ type opts struct {
 	permMode  string
 	sandbox   bool
 	tui       bool
+	features  stringList
 	help      bool
 	ver       bool
+}
+
+// stringList collects a repeatable string flag (e.g. --feature X --feature Y).
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+func (s *stringList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
 }
 
 func parseArgs(args []string) (opts, error) {
@@ -60,6 +71,7 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
 	fs.BoolVar(&o.sandbox, "sandbox", false, "run Bash commands in an OS sandbox (no network, ro fs except cwd/tmp)")
 	fs.BoolVar(&o.tui, "tui", false, "use the rich Bubbletea TUI instead of the line REPL")
+	fs.Var(&o.features, "feature", "enable/disable a feature flag (repeatable): FLAG, -FLAG, FLAG=0")
 	fs.BoolVar(&o.help, "h", false, "help")
 	fs.BoolVar(&o.help, "help", false, "help")
 	fs.BoolVar(&o.ver, "v", false, "version")
@@ -157,12 +169,15 @@ func run(o opts) error {
 	toolReg.Register(tools.ExitPlanModeTool{})
 	subRunner := engine.SubagentRunner(client, subReg, engine.ClaudeCodePrefix)
 	toolReg.Register(tools.AgentTool{Run: subRunner})
-	taskReg := task.NewRegistry(task.Runner(subRunner))
-	toolReg.Register(tools.TaskCreateTool{Reg: taskReg})
-	toolReg.Register(tools.TaskGetTool{Reg: taskReg})
-	toolReg.Register(tools.TaskListTool{Reg: taskReg})
-	toolReg.Register(tools.TaskOutputTool{Reg: taskReg})
-	toolReg.Register(tools.TaskStopTool{Reg: taskReg})
+	feats := feature.Resolve(os.Getenv("BANKAI_FEATURES"), o.features)
+	if feats.Enabled("TASKS") {
+		taskReg := task.NewRegistry(task.Runner(subRunner))
+		toolReg.Register(tools.TaskCreateTool{Reg: taskReg})
+		toolReg.Register(tools.TaskGetTool{Reg: taskReg})
+		toolReg.Register(tools.TaskListTool{Reg: taskReg})
+		toolReg.Register(tools.TaskOutputTool{Reg: taskReg})
+		toolReg.Register(tools.TaskStopTool{Reg: taskReg})
+	}
 	toolReg.Register(&tools.CreateGoalTool{Store: goals})
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
 	toolReg.Register(&tools.GetGoalTool{Store: goals})
@@ -172,7 +187,10 @@ func run(o opts) error {
 
 	// Plugins: ~/.claude/plugins/*/plugin.json. Each can contribute skills
 	// (skills/ subdir) and MCP servers (manifest mcpServers), merged below.
-	loadedPlugins := plugins.Load(home, nil)
+	var loadedPlugins []plugins.Plugin
+	if feats.Enabled("PLUGINS") {
+		loadedPlugins = plugins.Load(home, nil)
+	}
 
 	// Skills: user (~/.claude/skills) + project (.claude/skills) SKILL.md files,
 	// plus any plugin skills/ dirs. Expose the Skill tool when any exist.
@@ -182,16 +200,19 @@ func run(o opts) error {
 			skillSet.AddPluginDir(p.SkillsDir)
 		}
 	}
-	if skillSet.Len() > 0 {
+	if feats.Enabled("SKILLS") && skillSet.Len() > 0 {
 		toolReg.Register(tools.SkillTool{Set: skillSet})
 	}
 
 	// MCP: dial configured stdio servers and bridge their tools in. Failures
 	// are reported but non-fatal so a bad server doesn't block startup.
-	mcpConfigs := mcp.LoadConfigs(home, wd)
-	for name, cfg := range plugins.CollectMCPServers(loadedPlugins) {
-		if _, exists := mcpConfigs[name]; !exists {
-			mcpConfigs[name] = cfg
+	mcpConfigs := map[string]mcp.ServerConfig{}
+	if feats.Enabled("MCP") {
+		mcpConfigs = mcp.LoadConfigs(home, wd)
+		for name, cfg := range plugins.CollectMCPServers(loadedPlugins) {
+			if _, exists := mcpConfigs[name]; !exists {
+				mcpConfigs[name] = cfg
+			}
 		}
 	}
 	var mcpMgr *mcp.Manager
@@ -216,16 +237,21 @@ func run(o opts) error {
 
 	// Memory: file-based store under ~/.claude/projects/<sanitized-cwd>/memory.
 	var memStore *memory.Store
-	if projDir, err := transcript.ProjectDir(wd); err == nil {
-		memStore = memory.NewStore(filepath.Join(projDir, "memory"))
-		toolReg.Register(tools.CreateMemoryTool{Store: memStore})
-		toolReg.Register(tools.SearchMemoryTool{Store: memStore})
-		toolReg.Register(tools.DeleteMemoryTool{Store: memStore})
+	if feats.Enabled("MEMORY") {
+		if projDir, err := transcript.ProjectDir(wd); err == nil {
+			memStore = memory.NewStore(filepath.Join(projDir, "memory"))
+			toolReg.Register(tools.CreateMemoryTool{Store: memStore})
+			toolReg.Register(tools.SearchMemoryTool{Store: memStore})
+			toolReg.Register(tools.DeleteMemoryTool{Store: memStore})
+		}
 	}
 
 	// LSP: language servers from settings.json lspServers + built-in defaults
 	// (gopls). Servers start lazily on first diagnostics request.
-	lspConfigs := lsp.LoadConfigs(home, wd)
+	var lspConfigs map[string]lsp.ServerConfig
+	if feats.Enabled("LSP") {
+		lspConfigs = lsp.LoadConfigs(home, wd)
+	}
 	var lspMgr *lsp.Manager
 	if len(lspConfigs) > 0 {
 		lspMgr = lsp.NewManager(wd, lspConfigs)
@@ -340,6 +366,7 @@ func run(o opts) error {
 		pluginLines = append(pluginLines, fmt.Sprintf("%s@%s — %s", p.Name, v, p.Description))
 	}
 	cmdReg.Register(commands.Plugins{Lines: pluginLines})
+	cmdReg.Register(commands.Features{Flags: feats.List()})
 	if memStore != nil {
 		cmdReg.Register(commands.Memory{Index: memStore.Index})
 	}
@@ -355,7 +382,7 @@ func run(o opts) error {
 	fmt.Fprintf(os.Stderr, "bankai %s — auth=%s session=%s (%s)\n",
 		version, cfg.Source, tw.SessionID, tw.Path)
 
-	if o.tui {
+	if o.tui && feats.Enabled("TUI") {
 		return tui.NewBubble(ctx, eng, cmdReg, goals).Run()
 	}
 	repl := tui.New(eng, cmdReg, goals)
@@ -418,6 +445,7 @@ Usage:
   bankai "<prompt words>"       same as -p
   bankai --model <name>         override model for this run
   bankai --tui                  rich Bubbletea TUI (default is the line REPL)
+  bankai --feature FLAG         toggle a feature (repeatable): FLAG, -FLAG, FLAG=0
 
 Interop:
   Sessions live at ~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl —
@@ -438,7 +466,7 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /limits /mcp /memory /pwd /tools /system /plugins
+  /todos /plan /permissions /limits /mcp /memory /pwd /tools /system /plugins /features
   /init /commit /review /doctor /exit
 
 Permissions:
