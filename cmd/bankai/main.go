@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/estradoss/bankai/internal/codex"
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/engine"
@@ -64,6 +65,14 @@ func parseArgs(args []string) (opts, error) {
 }
 
 func main() {
+	// Codex OAuth subcommands: `bankai codex login|logout`.
+	if len(os.Args) >= 2 && os.Args[1] == "codex" {
+		if err := runCodex(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "bankai:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	o, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bankai:", err)
@@ -100,16 +109,41 @@ func run(o opts) error {
 		return err
 	}
 
+	todos := tools.NewTodoStore()
+
+	// Sub-agent tool registry: same file/search/exec tools, but no recursion
+	// (no Task) and no goal mutation.
+	subReg := tools.NewRegistry()
+	subReg.Register(tools.BashTool{})
+	subReg.Register(tools.ReadTool{})
+	subReg.Register(tools.EditTool{})
+	subReg.Register(tools.WriteTool{})
+	subReg.Register(tools.GlobTool{})
+	subReg.Register(tools.GrepTool{})
+	subReg.Register(tools.WebFetchTool{})
+	subReg.Register(tools.WebSearchTool{})
+
+	client := provider.NewClient(cfg.Auth, cfg.Model)
+	if cfg.Codex != nil {
+		client.OpenAI = provider.NewCodexClient(cfg.Codex.AccessToken, cfg.Codex.AccountID())
+	}
+
 	toolReg := tools.NewRegistry()
 	toolReg.Register(tools.BashTool{})
 	toolReg.Register(tools.ReadTool{})
 	toolReg.Register(tools.EditTool{})
 	toolReg.Register(tools.WriteTool{})
+	toolReg.Register(tools.GlobTool{})
+	toolReg.Register(tools.GrepTool{})
+	toolReg.Register(tools.WebFetchTool{})
+	toolReg.Register(tools.WebSearchTool{})
+	toolReg.Register(tools.TodoWriteTool{Store: todos})
+	toolReg.Register(tools.ExitPlanModeTool{})
+	toolReg.Register(tools.AgentTool{Run: engine.SubagentRunner(client, subReg, engine.ClaudeCodePrefix)})
 	toolReg.Register(&tools.CreateGoalTool{Store: goals})
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
 	toolReg.Register(&tools.GetGoalTool{Store: goals})
 
-	client := provider.NewClient(cfg.Auth, cfg.Model)
 	eng := engine.New(client, toolReg, goals)
 
 	cwd, _ := os.Getwd()
@@ -168,6 +202,15 @@ func run(o opts) error {
 	cmdReg.Register(commands.Model{})
 	cmdReg.Register(commands.Dump{})
 	cmdReg.Register(commands.GoalCmd{})
+	cmdReg.Register(commands.Compact{})
+	cmdReg.Register(commands.Cost{})
+	cmdReg.Register(commands.ContextCmd{})
+	cmdReg.Register(commands.Todos{Store: todos})
+	cmdReg.Register(commands.Plan{})
+	cmdReg.Register(commands.Init{})
+	cmdReg.Register(commands.Commit{})
+	cmdReg.Register(commands.Review{})
+	cmdReg.Register(commands.Doctor{Source: cfg.Source})
 	cmdReg.Register(commands.Help{Registry: cmdReg})
 
 	ctx, cancel := signalCtx()
@@ -178,6 +221,30 @@ func run(o opts) error {
 
 	repl := tui.New(eng, cmdReg, goals)
 	return repl.Run(ctx)
+}
+
+func runCodex(args []string) error {
+	sub := "login"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "login":
+		toks, err := codex.Login()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Codex login complete. Account %s. Run with CLAUDE_CODE_USE_OPENAI=1.\n", toks.AccountID)
+		return nil
+	case "logout":
+		if err := codex.Logout(); err != nil {
+			return err
+		}
+		fmt.Println("Codex credentials removed.")
+		return nil
+	default:
+		return fmt.Errorf("unknown codex subcommand %q (use: login | logout)", sub)
+	}
 }
 
 func oneShot(ctx context.Context, eng *engine.Engine, prompt string) error {
@@ -217,11 +284,19 @@ Interop:
   the exact same file Claude Code uses. bankai and claude can hand a
   session back and forth: run one, exit, run the other with -c/--resume.
 
+Providers:
+  bankai codex login            log in to OpenAI Codex (subscription OAuth)
+  bankai codex logout           remove Codex credentials
+  CLAUDE_CODE_USE_OPENAI=1      route to Codex (Responses API) after login
+  CLAUDE_CODE_USE_FOUNDRY=1     use ANTHROPIC_FOUNDRY_API_KEY
+  ANTHROPIC_BASE_URL            point the Anthropic path at a gateway
+
 Env:
   CLAUDE_CODE_OAUTH_TOKEN   override OAuth access token
   ANTHROPIC_API_KEY         used when no OAuth creds found
   BANKAI_MODEL              default model (default: ` + config.DefaultModel + `)
 
 Slash commands (REPL):
-  /help /goal /model /clear /dump /exit`)
+  /help /goal /model /clear /dump /compact /cost /context
+  /todos /plan /init /commit /review /doctor /exit`)
 }

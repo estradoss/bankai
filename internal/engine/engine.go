@@ -22,6 +22,10 @@ type Engine struct {
 	System     string
 	OnText     func(string)
 	Transcript *transcript.Writer // optional; nil = don't record
+	// TotalUsage accumulates token usage across every model turn this session.
+	TotalUsage agent.Usage
+	// Turns counts model turns (round-trips) this session.
+	Turns int
 }
 
 // ClaudeCodePrefix is required as the system prompt when authenticating via a
@@ -38,10 +42,38 @@ func New(cli *provider.Client, reg *tools.Registry, goals *goal.Store) *Engine {
 	}
 }
 
+// AutoCompactChars is the approximate context size (in characters) at which
+// Submit compacts the conversation before the next turn. ~4 chars/token, so
+// 600k chars ≈ 150k tokens. Zero disables auto-compaction.
+var AutoCompactChars = 600_000
+
+// contextChars estimates the size of the current conversation.
+func (e *Engine) contextChars() int {
+	n := 0
+	for _, m := range e.Messages {
+		for _, c := range m.Content {
+			n += len(c.Text) + len(c.Content) + len(c.Input)
+		}
+	}
+	return n
+}
+
 // Submit adds a user message and runs the tool loop until the model stops needing tools.
 func (e *Engine) Submit(ctx context.Context, userInput string) error {
-	if g := e.Goals.Get(); g != nil && g.IsActive() {
-		e.Messages = append(e.Messages, agent.UserText(goal.ContinuationPrompt(g)))
+	if AutoCompactChars > 0 && e.contextChars() > AutoCompactChars {
+		if _, err := e.Compact(ctx); err != nil {
+			// Non-fatal: continue with the full history if compaction fails.
+			if e.OnText != nil {
+				e.OnText("\n[auto-compact failed: " + err.Error() + "]\n")
+			}
+		} else if e.OnText != nil {
+			e.OnText("\n[context auto-compacted]\n")
+		}
+	}
+	if e.Goals != nil {
+		if g := e.Goals.Get(); g != nil && g.IsActive() {
+			e.Messages = append(e.Messages, agent.UserText(goal.ContinuationPrompt(g)))
+		}
 	}
 	e.Messages = append(e.Messages, agent.UserText(userInput))
 	if e.Transcript != nil {
@@ -65,16 +97,19 @@ func (e *Engine) runLoop(ctx context.Context) error {
 			return err
 		}
 		e.Messages = append(e.Messages, agent.Message{Role: "assistant", Content: res.Content})
+		e.addUsage(res.Usage)
 		if e.Transcript != nil {
 			_ = e.Transcript.WriteAssistant(e.Client.Model, res.Content, res.StopReason, &res.Usage)
 		}
 
-		if g := e.Goals.Get(); g != nil && g.IsActive() {
-			_ = e.Goals.AddUsage(res.Usage.Total(), time.Since(start))
+		if e.Goals != nil {
+			if g := e.Goals.Get(); g != nil && g.IsActive() {
+				_ = e.Goals.AddUsage(res.Usage.Total(), time.Since(start))
+			}
 		}
 
 		if res.StopReason != "tool_use" {
-			if g := e.Goals.Get(); g != nil && g.Status == goal.StatusBudgetLimited {
+			if g := e.goalOrNil(); g != nil && g.Status == goal.StatusBudgetLimited {
 				e.Messages = append(e.Messages, agent.UserText(goal.BudgetLimitPrompt(g)))
 				if e.Transcript != nil {
 					_ = e.Transcript.WriteUser(goal.BudgetLimitPrompt(g))
@@ -90,6 +125,7 @@ func (e *Engine) runLoop(ctx context.Context) error {
 					return err
 				}
 				e.Messages = append(e.Messages, agent.Message{Role: "assistant", Content: res2.Content})
+				e.addUsage(res2.Usage)
 				if e.Transcript != nil {
 					_ = e.Transcript.WriteAssistant(e.Client.Model, res2.Content, res2.StopReason, &res2.Usage)
 				}
@@ -125,6 +161,89 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + fmt.Sprintf("\n[truncated %d bytes]", len(s)-max)
+}
+
+func (e *Engine) addUsage(u agent.Usage) {
+	e.Turns++
+	e.TotalUsage.InputTokens += u.InputTokens
+	e.TotalUsage.OutputTokens += u.OutputTokens
+	e.TotalUsage.CacheCreationInputTokens += u.CacheCreationInputTokens
+	e.TotalUsage.CacheReadInputTokens += u.CacheReadInputTokens
+}
+
+func (e *Engine) goalOrNil() *goal.Goal {
+	if e.Goals == nil {
+		return nil
+	}
+	return e.Goals.Get()
+}
+
+// LastAssistantText returns the concatenated text blocks of the most recent
+// assistant message (used to capture a sub-agent's final report).
+func (e *Engine) LastAssistantText() string {
+	for i := len(e.Messages) - 1; i >= 0; i-- {
+		m := e.Messages[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		var b strings.Builder
+		for _, c := range m.Content {
+			if c.Type == "text" {
+				b.WriteString(c.Text)
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	return ""
+}
+
+// SubagentRunner builds a runner that spawns an isolated sub-engine sharing the
+// parent's provider client and tool set, runs a task to completion, and returns
+// the sub-agent's final text. The sub-engine has no goal state and does not
+// record to the transcript.
+func SubagentRunner(client *provider.Client, reg *tools.Registry, system string) tools.SubagentFunc {
+	return func(ctx context.Context, prompt string) (string, error) {
+		sub := &Engine{Client: client, Tools: reg, System: system}
+		if err := sub.Submit(ctx, prompt); err != nil {
+			return "", err
+		}
+		return sub.LastAssistantText(), nil
+	}
+}
+
+const compactPrompt = `Summarize our conversation so far into a compact hand-off note that preserves everything needed to continue the work. Include: the user's goal and constraints, key decisions, files and functions touched, current state, and the next steps. Be thorough but concise. Output only the summary.`
+
+// Compact replaces the conversation history with a single model-generated
+// summary, freeing context while preserving continuity. Returns the summary.
+func (e *Engine) Compact(ctx context.Context) (string, error) {
+	if len(e.Messages) == 0 {
+		return "", fmt.Errorf("nothing to compact")
+	}
+	msgs := append([]agent.Message{}, e.Messages...)
+	msgs = append(msgs, agent.UserText(compactPrompt))
+	res, err := e.Client.Stream(ctx, provider.StreamRequest{
+		Model:    e.Client.Model,
+		System:   e.System,
+		Messages: msgs,
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+	e.addUsage(res.Usage)
+	var summary strings.Builder
+	for _, c := range res.Content {
+		if c.Type == "text" {
+			summary.WriteString(c.Text)
+		}
+	}
+	sum := strings.TrimSpace(summary.String())
+	if sum == "" {
+		return "", fmt.Errorf("compaction produced no summary")
+	}
+	e.Messages = []agent.Message{
+		agent.UserText("[Earlier conversation summarized to save context]\n\n" + sum),
+	}
+	return sum, nil
 }
 
 // SetObjectiveUpdated queues the objective_updated hidden prompt for the next turn.

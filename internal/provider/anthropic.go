@@ -55,20 +55,28 @@ func (a BearerAuth) Apply(req *http.Request) error {
 	return nil
 }
 
-// Client is a thin Anthropic Messages API client with streaming.
+// Client is a thin Anthropic Messages API client with streaming. When OpenAI is
+// set, requests are delegated to an OpenAI-compatible backend instead.
 type Client struct {
 	Auth      AuthSource
 	Model     string
 	BaseURL   string
 	HTTP      *http.Client
 	SessionID string // sent as X-Claude-Code-Session-Id when non-empty
+	// OpenAI, when non-nil, routes Stream() to an OpenAI-compatible endpoint.
+	OpenAI *OpenAIClient
 }
 
 func NewClient(auth AuthSource, model string) *Client {
+	base := os.Getenv("ANTHROPIC_BASE_URL")
+	if base == "" {
+		base = defaultBaseURL
+	}
+	base = strings.TrimRight(base, "/")
 	return &Client{
 		Auth:    auth,
 		Model:   model,
-		BaseURL: defaultBaseURL,
+		BaseURL: base,
 		HTTP:    &http.Client{Timeout: 10 * time.Minute},
 	}
 }
@@ -103,6 +111,12 @@ type StreamResult struct {
 // Stream calls /messages with stream=true and assembles the response.
 // It calls onText(delta) for each text_delta so the caller can render live.
 func (c *Client) Stream(ctx context.Context, req StreamRequest, onText func(string)) (*StreamResult, error) {
+	if c.OpenAI != nil {
+		if req.Model == "" {
+			req.Model = c.Model
+		}
+		return c.OpenAI.Stream(ctx, req, onText)
+	}
 	req.Stream = true
 	if req.MaxTokens == 0 {
 		req.MaxTokens = 8192
