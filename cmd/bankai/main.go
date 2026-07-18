@@ -245,6 +245,7 @@ func run(o opts) error {
 	cmdReg.Register(commands.Todos{Store: todos})
 	cmdReg.Register(commands.Plan{})
 	cmdReg.Register(commands.Permissions{})
+	cmdReg.Register(commands.Limits{})
 	cmdReg.Register(commands.Init{})
 	cmdReg.Register(commands.Commit{})
 	cmdReg.Register(commands.Review{})
@@ -336,7 +337,7 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /init /commit /review /doctor /exit
+  /todos /plan /permissions /limits /init /commit /review /doctor /exit
 
 Permissions:
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan

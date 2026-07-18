@@ -46,7 +46,9 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        `Task` tool. (Persistent cron/remote task kinds still TODO.)
 3. [ ] **Real TUI** — Bubbletea/lipgloss equivalent of the Ink renderer: spinner, tool-call panels,
        streaming markdown, live todo/goal footer, themes, keybindings, Vim mode. `src/ink/`, `src/vim/`.
-4. [ ] **Rate-limit / billing header display** — ride on the new TUI. `src/services/api/`, cost-tracker.
+4. [~] **Rate-limit / billing header display** — `provider.RateLimit` captures anthropic-ratelimit-*
+       (requests/tokens/unified + retry-after) headers off every response; `/limits` command prints
+       them. (Live TUI header widget still TODO — rides on the future TUI.)
 5. [ ] **MCP client** — connection manager, OAuth (xaa/idp), registry, transports, rich output,
        MCP tools (MCPTool/McpAuth/ListMcpResources/ReadMcpResource). `src/services/mcp/`.
 6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.

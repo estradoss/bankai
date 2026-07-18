@@ -10,12 +10,12 @@ import (
 
 func TestMapToCodexModel(t *testing.T) {
 	cases := map[string]string{
-		"":                    DefaultCodexModel,
-		"gpt-5.2-codex":       "gpt-5.2-codex",
-		"claude-opus-4-7":     "gpt-5.1-codex-max",
-		"claude-haiku-4-5":    "gpt-5.1-codex-mini",
-		"claude-sonnet-4-6":   "gpt-5.2-codex",
-		"some-unknown-model":  DefaultCodexModel,
+		"":                   DefaultCodexModel,
+		"gpt-5.2-codex":      "gpt-5.2-codex",
+		"claude-opus-4-7":    "gpt-5.1-codex-max",
+		"claude-haiku-4-5":   "gpt-5.1-codex-mini",
+		"claude-sonnet-4-6":  "gpt-5.2-codex",
+		"some-unknown-model": DefaultCodexModel,
 	}
 	for in, want := range cases {
 		if got := MapToCodexModel(in); got != want {

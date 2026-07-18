@@ -141,6 +141,44 @@ func (Plan) Run(ctx Context, args string) (Result, error) {
 	return Result{Submit: "You are in PLAN MODE. Research the codebase using read-only tools (Read, Glob, Grep, Bash for inspection only — no edits, no writes). Do NOT modify any files. When you have a concrete implementation plan, call the ExitPlanMode tool with the plan as markdown for my approval.\n\nTask: " + task}, nil
 }
 
+// Limits shows the most recent Anthropic rate-limit / billing headers.
+type Limits struct{}
+
+func (Limits) Name() string        { return "limits" }
+func (Limits) Description() string { return "Show latest API rate-limit / billing headers" }
+func (Limits) Run(ctx Context, args string) (Result, error) {
+	s := ctx.Engine.Client.Limits.Snapshot()
+	if !s.Seen {
+		return Result{Text: "no rate-limit headers seen yet (make a request first)"}, nil
+	}
+	var b strings.Builder
+	b.WriteString("rate limits (last response):\n")
+	row := func(label, rem, lim, reset string) {
+		if lim == "" && rem == "" {
+			return
+		}
+		fmt.Fprintf(&b, "  %-9s %s/%s remaining", label, dash(rem), dash(lim))
+		if reset != "" {
+			fmt.Fprintf(&b, "  resets %s", reset)
+		}
+		b.WriteByte('\n')
+	}
+	row("requests", s.RequestsRemaining, s.RequestsLimit, s.RequestsReset)
+	row("tokens", s.TokensRemaining, s.TokensLimit, s.TokensReset)
+	row("unified", s.UnifiedRemaining, s.UnifiedLimit, s.UnifiedReset)
+	if s.RetryAfter != "" {
+		fmt.Fprintf(&b, "  retry-after: %ss\n", s.RetryAfter)
+	}
+	return Result{Text: strings.TrimRight(b.String(), "\n")}, nil
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "?"
+	}
+	return s
+}
+
 // Doctor prints a short environment/health summary.
 type Doctor struct{ Source string }
 

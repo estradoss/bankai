@@ -16,7 +16,6 @@ import (
 	"github.com/estradoss/bankai/internal/tools"
 )
 
-
 const defaultBaseURL = "https://api.anthropic.com/v1"
 const apiVersion = "2023-06-01"
 
@@ -65,6 +64,8 @@ type Client struct {
 	SessionID string // sent as X-Claude-Code-Session-Id when non-empty
 	// OpenAI, when non-nil, routes Stream() to an OpenAI-compatible endpoint.
 	OpenAI *OpenAIClient
+	// Limits holds the most recent rate-limit headers seen on a response.
+	Limits RateLimit
 }
 
 func NewClient(auth AuthSource, model string) *Client {
@@ -162,6 +163,7 @@ func (c *Client) Stream(ctx context.Context, req StreamRequest, onText func(stri
 		return nil, err
 	}
 	defer resp.Body.Close()
+	c.Limits.capture(resp.Header)
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, string(b))
