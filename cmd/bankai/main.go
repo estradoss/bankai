@@ -167,21 +167,25 @@ func run(o opts) error {
 
 	eng := engine.New(client, toolReg, goals)
 
-	// Permission gate. Default mode asks before mutating/exec tools. In
-	// one-shot (-p) mode there is no interactive prompt, so unless the user
-	// picks an explicit non-asking mode we bypass to keep scripted runs usable.
+	// Permission gate. Rules come from ~/.claude/settings.json and the project's
+	// .claude/settings.json(.local). Mode precedence: --permission-mode flag >
+	// settings defaultMode > built-in default (bypass in one-shot, else default).
+	allowRules, denyRules, settingsMode := permission.LoadSettings(home, wd)
 	mode := permission.Mode(o.permMode)
 	if o.permMode == "" {
-		if o.printMode {
+		switch {
+		case settingsMode.Valid():
+			mode = settingsMode
+		case o.printMode:
 			mode = permission.ModeBypass
-		} else {
+		default:
 			mode = permission.ModeDefault
 		}
 	}
 	if !mode.Valid() {
 		return fmt.Errorf("invalid --permission-mode %q", o.permMode)
 	}
-	eng.Perms = permission.New(mode, nil, nil)
+	eng.Perms = permission.New(mode, allowRules, denyRules)
 
 	cwd, _ := os.Getwd()
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {

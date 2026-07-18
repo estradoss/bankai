@@ -39,7 +39,9 @@ Rough dependency order (do top-down; later items lean on earlier infra).
 1. [x] **Permission gate** — `internal/permission`. Modes (default/acceptEdits/bypassPermissions/
        dontAsk/plan), deny>allow>mode-default rule precedence, content-match rules, interactive
        asker (y/always/no) wired through the REPL. Gate in `engine.Perms`; `--permission-mode` flag +
-       `/permissions` cmd; `/plan` hard-engages plan mode. (Sandbox toggle still TODO.)
+       `/permissions` cmd; `/plan` hard-engages plan mode. Rules + defaultMode load from
+       `~/.claude/settings.json` and project `.claude/settings.json(.local)` (Claude-Code
+       `Bash(git:*)` rule syntax, substring subset). (Sandbox toggle still TODO.)
 2. [x] **Async/background Task management** — `internal/task` registry (goroutine per task,
        status running/completed/failed/stopped, cancellable via ctx) + `TaskCreate/TaskGet/
        TaskList/TaskOutput/TaskStop` tools. Reuses the SubagentRunner. Complements the synchronous
