@@ -96,3 +96,76 @@ func (t TodoWriteTool) Call(ctx context.Context, input json.RawMessage) (Result,
 	t.Store.Set(in.Todos)
 	return Result{Output: "Todos updated.\n" + t.Store.Render()}, nil
 }
+
+// Update mutates a single item matched by content, without replacing the whole
+// list. Returns false if no item matches. Empty new-values leave a field as-is;
+// status "deleted" removes the item.
+func (s *TodoStore) Update(content, subject, status, activeForm string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		if s.items[i].Content != content {
+			continue
+		}
+		if status == "deleted" {
+			s.items = append(s.items[:i], s.items[i+1:]...)
+			return true
+		}
+		if subject != "" {
+			s.items[i].Content = subject
+		}
+		if status != "" {
+			s.items[i].Status = status
+		}
+		if activeForm != "" {
+			s.items[i].ActiveForm = activeForm
+		}
+		return true
+	}
+	return false
+}
+
+// TaskUpdateTool is the Go port of vibelearn's TaskUpdateTool. Where TodoWrite
+// replaces the whole list, TaskUpdate mutates one task in place — flip status,
+// rename, or delete — matched by its current content. (The TS original keys on
+// a taskId in the todo-v2 file store; bankai's todo list is content-keyed, so
+// we match on content.)
+type TaskUpdateTool struct{ Store *TodoStore }
+
+func (TaskUpdateTool) Name() string { return "TaskUpdate" }
+
+func (TaskUpdateTool) Description() string {
+	return "Update a single task in the todo list in place (without rewriting the whole list): change its status, rename it, or delete it. Identify the task by its current `content`. Keep exactly one task in_progress at a time."
+}
+
+func (TaskUpdateTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"content": {"type": "string", "description": "Current content of the task to update"},
+			"subject": {"type": "string", "description": "New content/subject for the task"},
+			"status": {"type": "string", "enum": ["pending", "in_progress", "completed", "deleted"], "description": "New status; 'deleted' removes the task"},
+			"activeForm": {"type": "string", "description": "Present-continuous label shown while in_progress"}
+		},
+		"required": ["content"]
+	}`)
+}
+
+func (t TaskUpdateTool) Call(ctx context.Context, input json.RawMessage) (Result, error) {
+	var in struct {
+		Content    string `json:"content"`
+		Subject    string `json:"subject"`
+		Status     string `json:"status"`
+		ActiveForm string `json:"activeForm"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return Result{IsError: true, Output: fmt.Sprintf("bad input: %v", err)}, nil
+	}
+	if in.Content == "" {
+		return Result{IsError: true, Output: "content is required"}, nil
+	}
+	if !t.Store.Update(in.Content, in.Subject, in.Status, in.ActiveForm) {
+		return Result{IsError: true, Output: "no task found with content: " + in.Content}, nil
+	}
+	return Result{Output: "Task updated.\n" + t.Store.Render()}, nil
+}

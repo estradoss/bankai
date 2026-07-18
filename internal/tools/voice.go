@@ -61,3 +61,55 @@ func (t TranscribeTool) Call(ctx context.Context, input json.RawMessage) (Result
 	}
 	return Result{Output: text}, nil
 }
+
+// StreamTranscribeTool captures live microphone audio and transcribes it in
+// real time over Anthropic's voice_stream WebSocket endpoint (the streaming
+// counterpart to `transcribe`, which is batch/file-based). Requires Anthropic
+// OAuth auth — Token yields a fresh bearer token.
+type StreamTranscribeTool struct {
+	Session *voice.Session
+	Token   func() (string, error)
+}
+
+func (StreamTranscribeTool) Name() string { return "transcribe_stream" }
+
+func (StreamTranscribeTool) Description() string {
+	return "Record microphone audio for N seconds and transcribe it live via Anthropic's real-time voice_stream STT. Push-to-talk style: captures a bounded window then returns the finalized transcript (keyterm-corrected). Requires Anthropic OAuth and a raw-PCM recorder (arecord/sox/ffmpeg)."
+}
+
+func (StreamTranscribeTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"seconds": {"type": "integer", "description": "Capture window in seconds (default 8)"},
+			"keyterms": {"type": "array", "items": {"type": "string"}, "description": "Optional domain terms to bias toward"}
+		}
+	}`)
+}
+
+func (t StreamTranscribeTool) Call(ctx context.Context, input json.RawMessage) (Result, error) {
+	if t.Session == nil || t.Token == nil {
+		return Result{IsError: true, Output: "streaming voice not configured (requires Anthropic OAuth)"}, nil
+	}
+	var in struct {
+		Seconds  int      `json:"seconds"`
+		Keyterms []string `json:"keyterms"`
+	}
+	if len(input) > 0 {
+		if err := json.Unmarshal(input, &in); err != nil {
+			return Result{IsError: true, Output: fmt.Sprintf("bad input: %v", err)}, nil
+		}
+	}
+	for _, k := range in.Keyterms {
+		t.Session.AddKeyterm(k)
+	}
+	tok, err := t.Token()
+	if err != nil {
+		return Result{IsError: true, Output: "could not get OAuth token: " + err.Error()}, nil
+	}
+	text, err := t.Session.StreamDictate(ctx, tok, nil, in.Seconds)
+	if err != nil {
+		return Result{IsError: true, Output: "streaming transcription failed: " + err.Error()}, nil
+	}
+	return Result{Output: text}, nil
+}

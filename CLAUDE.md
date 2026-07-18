@@ -131,8 +131,13 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        whisper/whisper.cpp), and **live mic capture / push-to-talk** (`CLIRecorder` via
        arecord/sox/ffmpeg → `Session.Dictate` records N seconds then transcribes). Agent tool
        `transcribe` + `/dictate [seconds]` command (submits the transcription as a turn), gated by
-       VOICE_MODE. (Real-time streaming STT would need a streaming STT service — whisper is batch;
-       the push-to-talk window model is the standard offline approach.) `src/services/voice*`.
+       VOICE_MODE. **Real-time streaming STT done** (`stream_stt.go` + `wsclient.go` +
+       `stream_capture.go`): a stdlib-only RFC 6455 WebSocket client drives Anthropic's
+       `voice_stream` endpoint (linear16/16kHz/mono binary frames, KeepAlive/CloseStream JSON
+       control, TranscriptText/Endpoint/Error handling, interim→final promotion + finalize
+       timeout ladder), fed raw PCM from arecord/sox/ffmpeg; exposed as the `transcribe_stream`
+       tool (gated by VOICE_MODE + Anthropic OAuth) alongside the whisper batch path.
+       `src/services/voice*`, `src/services/voiceStreamSTT.ts`.
 13. [x] **IDE integration** — `internal/bridge`: HTTP bridge + discovery lockfile
        (`~/.claude/ide/<port>.lock`, run via `bankai --ide [--ide-port N]`). The editor pushes state
        (`POST /v1/selection`, `/v1/diagnostics`) and polls agent→IDE commands (`GET /v1/commands`);
@@ -158,6 +163,30 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        subsystems (VOICE_MODE/BRIDGE_MODE/BEDROCK/VERTEX/REMOTE default off); `/features` lists
        state. Mechanism complete — Go uses runtime gating over compile-time bundling; individual
        unported features (voice/remote/etc.) track under their own roadmap items, not here.
+
+16. [x] **Tool-level parity ports** — the remaining agent-facing tools from `src/tools/`
+       not covered above, ported in bankai idiom and registered in `cmd/bankai/main.go`:
+       **StructuredOutput** (SyntheticOutputTool; JSON-schema-validated final output),
+       **EnterPlanMode** (`internal/tools/plan.go`; flips the permission gate to ModePlan,
+       counterpart to ExitPlanMode), **TaskUpdate** (`todo.go`; mutate one todo in place),
+       **SendUserMessage** (`brief.go`; BriefTool — emit a user-facing message + attachments),
+       **McpAuth** (`mcpauth.go`; trigger a server's OAuth flow via `internal/mcp`),
+       **Cron{Create,List,Delete}** (`cron.go` + new `internal/cron`: 5-field parser, next-run,
+       durable `.claude/scheduled_tasks.json` store, minute-tick scheduler firing prompts as
+       background tasks — gated by TASKS), **Workflow** (`workflow.go`; sequential/parallel
+       multi-step sub-agent orchestration over the SubagentRunner — gated by TASKS),
+       **SendMessage / RemoteTrigger / TeamCreate / TeamDelete** (`swarm.go`; inter-agent
+       messaging + trigger rules via the clawx `master` CLI, local team files under
+       `~/.claude/teams` — gated by REMOTE), and faithful disabled stubs **Tungsten** /
+       **VerifyPlanExecution** (`stubs.go`; unavailable in this build, matching the TS originals).
+       Still not ported (heavier / infra-bound): session `migrations/`, keybindings customization +
+       full `outputStyles`, and the `brief`/`ultraplan`/`ultrareview` hosted commands.
+       (Real-time `voiceStreamSTT` is now done — see item 12.)
+
+17. [SKIP] **Buddy / companion sprite** — `src/buddy/` (companion.ts, sprites.ts, prompt.ts,
+       CompanionSprite.tsx, useBuddyNotification.tsx). Cosmetic ink-TUI pet: seeded-gacha animal
+       sprite beside the input box with an occasional speech bubble, gated by `feature('BUDDY')`.
+       Pure UI chrome + cosmetics, no agent capability. **Intentionally skipped** — not porting.
 
 See `_vibelearn/learnvibe/FEATURES.md` for the complete flag/subsystem inventory.
 

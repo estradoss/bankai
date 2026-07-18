@@ -17,6 +17,7 @@ import (
 	"github.com/estradoss/bankai/internal/codex"
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/config"
+	"github.com/estradoss/bankai/internal/cron"
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/feature"
 	"github.com/estradoss/bankai/internal/goal"
@@ -182,7 +183,12 @@ func run(o opts) error {
 	toolReg.Register(tools.WebFetchTool{})
 	toolReg.Register(tools.WebSearchTool{})
 	toolReg.Register(tools.TodoWriteTool{Store: todos})
+	toolReg.Register(tools.TaskUpdateTool{Store: todos})
+	toolReg.Register(tools.SendUserMessageTool{})
 	toolReg.Register(tools.ExitPlanModeTool{})
+	toolReg.Register(tools.StructuredOutputTool{})
+	toolReg.Register(tools.TungstenTool{})
+	toolReg.Register(tools.VerifyPlanExecutionTool{})
 	toolReg.Register(tools.NotebookEditTool{})
 	toolReg.Register(tools.SleepTool{})
 	wtState := &tools.WorktreeState{}
@@ -204,6 +210,31 @@ func run(o opts) error {
 		toolReg.Register(tools.TaskListTool{Reg: taskReg})
 		toolReg.Register(tools.TaskOutputTool{Reg: taskReg})
 		toolReg.Register(tools.TaskStopTool{Reg: taskReg})
+
+		// Scheduled tasks (cron): a fired job enqueues its prompt as a
+		// background sub-agent via the same task registry. Durable tasks
+		// persist under .claude/scheduled_tasks.json.
+		cwd2, _ := os.Getwd()
+		cronStore := cron.NewStore(cwd2, func(prompt string) {
+			_, _ = taskReg.Create("scheduled task", prompt)
+		})
+		cronStore.Start()
+		defer cronStore.Stop()
+		toolReg.Register(tools.CronCreateTool{Store: cronStore})
+		toolReg.Register(tools.CronListTool{Store: cronStore})
+		toolReg.Register(tools.CronDeleteTool{Store: cronStore})
+
+		// Workflow: multi-step sub-agent orchestration over the same runner.
+		toolReg.Register(tools.WorkflowTool{Run: subRunner})
+	}
+	// Multi-agent / swarm tools (SendMessage, RemoteTrigger, Team*): gated by
+	// REMOTE since they reach the clawx `master` CLI and shared team files.
+	if feats.Enabled("REMOTE") {
+		swarmHome, _ := os.UserHomeDir()
+		toolReg.Register(tools.SendMessageTool{})
+		toolReg.Register(tools.RemoteTriggerTool{})
+		toolReg.Register(tools.TeamCreateTool{HomeDir: swarmHome})
+		toolReg.Register(tools.TeamDeleteTool{HomeDir: swarmHome})
 	}
 	toolReg.Register(&tools.CreateGoalTool{Store: goals})
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
@@ -226,6 +257,13 @@ func run(o opts) error {
 	if feats.Enabled("VOICE_MODE") {
 		voiceSession = voice.NewSession(nil)
 		toolReg.Register(tools.TranscribeTool{Session: voiceSession})
+		// Real-time streaming STT over Anthropic voice_stream — needs OAuth.
+		if cfg.OAuth != nil {
+			toolReg.Register(tools.StreamTranscribeTool{
+				Session: voiceSession,
+				Token:   cfg.OAuth.AccessToken,
+			})
+		}
 	}
 	if o.ide {
 		if lock, err := bridge.WriteLockfile(home, o.idePort, o.serveToken, []string{wd}); err == nil {
@@ -275,6 +313,7 @@ func run(o opts) error {
 	}
 	var mcpMgr *mcp.Manager
 	if len(mcpConfigs) > 0 {
+		toolReg.Register(tools.McpAuthTool{Configs: mcpConfigs})
 		mgr, bridged, errs := mcp.Start(context.Background(), mcpConfigs)
 		mcpMgr = mgr
 		tools.RegisterMCPTools(toolReg, bridged)
@@ -375,6 +414,7 @@ func run(o opts) error {
 		return fmt.Errorf("invalid --permission-mode %q", o.permMode)
 	}
 	eng.Perms = permission.New(mode, allowRules, denyRules)
+	toolReg.Register(tools.EnterPlanModeTool{Perms: eng.Perms})
 
 	cwd, _ := os.Getwd()
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
