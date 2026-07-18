@@ -60,7 +60,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        tools/call), config loader (mcpServers from user+project settings.json), Manager that dials
        all servers non-fatally and bridges tools as `mcp__<server>__<tool>` (`tools.MCPTool`).
        `/mcp` lists them. (SSE/HTTP transports, OAuth/xaa, resources still TODO.)
-6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.
+6. [~] **LSP client** — `internal/lsp`: Content-Length-framed JSON-RPC client (initialize, didOpen,
+       publishDiagnostics registry), Manager routing by file extension with lazy server start,
+       config from settings.json lspServers + built-in gopls default, `lsp_diagnostics` tool.
+       (Hover/definition/rename + passive-feedback loop still TODO.)
 7. [~] **Memory subsystem** — `internal/memory`: file-based memdir store under
        `~/.claude/projects/<sanitized>/memory` (frontmatter md files: name/description/type
        user|feedback|project|reference, MEMORY.md index, keyword relevance search). Tools

@@ -16,6 +16,7 @@ import (
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
+	"github.com/estradoss/bankai/internal/lsp"
 	"github.com/estradoss/bankai/internal/mcp"
 	"github.com/estradoss/bankai/internal/memory"
 	"github.com/estradoss/bankai/internal/permission"
@@ -200,6 +201,16 @@ func run(o opts) error {
 		toolReg.Register(tools.CreateMemoryTool{Store: memStore})
 		toolReg.Register(tools.SearchMemoryTool{Store: memStore})
 		toolReg.Register(tools.DeleteMemoryTool{Store: memStore})
+	}
+
+	// LSP: language servers from settings.json lspServers + built-in defaults
+	// (gopls). Servers start lazily on first diagnostics request.
+	lspConfigs := lsp.LoadConfigs(home, wd)
+	var lspMgr *lsp.Manager
+	if len(lspConfigs) > 0 {
+		lspMgr = lsp.NewManager(wd, lspConfigs)
+		toolReg.Register(tools.LSPTool{Mgr: lspMgr})
+		defer lspMgr.Close()
 	}
 
 	eng := engine.New(client, toolReg, goals)
