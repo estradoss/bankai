@@ -17,7 +17,7 @@ the original `/goal` persistent-objective engine.
 
 Priority order. Each maps to TS source under `_vibelearn/learnvibe/src`.
 
-### Now / next — DONE
+### Phase 1 — DONE
 - [x] **Glob + Grep tools** — `internal/tools/glob.go`, `grep.go`. Grep uses ripgrep if present, else Go fallback.
 - [x] **WebFetch + WebSearch tools** — `internal/tools/web.go`. WebFetch strips HTML; WebSearch via DuckDuckGo HTML.
 - [x] **Subagents (Task tool)** — `internal/tools/agent.go` + `engine.SubagentRunner`. Synchronous, isolated
@@ -31,23 +31,35 @@ Priority order. Each maps to TS source under `_vibelearn/learnvibe/src`.
       Also `ANTHROPIC_BASE_URL` / `CLAUDE_CODE_USE_FOUNDRY=1`.
 - [x] **Cost / usage tracking** — `engine.TotalUsage`/`Turns` + `/cost`.
 
-### Later (explicitly deferred)
-- [ ] **Permission gate** — tools currently run UNRESTRICTED. Add before untrusted use. Sandbox toggle too.
-- [ ] **IDE integration** — VS Code / JetBrains, selection, diff-in-IDE, bridge — `src/bridge/`.
-- [ ] **Bedrock + Vertex providers** — need AWS SigV4 + GCP ADC signing; cloud-cred-gated, heavy.
-      Anthropic-compatible gateways already work today via `ANTHROPIC_BASE_URL`.
-- [ ] MCP client (connection mgr, OAuth, registry) — `src/services/mcp/`.
-- [ ] LSP client (diagnostics) — `src/services/lsp/`.
-- [ ] Memory subsystem (SessionMemory, extractMemories, autoDream, memdir) — `src/services/`.
-- [ ] Skills system (bundled + user dir) — `src/skills/`.
-- [ ] Plugins / marketplace — `src/services/plugins/`.
-- [ ] Remote / server / coordinator (multi-agent, WebSocket sessions) — `src/remote/`, `src/server/`.
-- [ ] Voice (STT, dictation) — `src/services/voice*`.
-- [ ] Real TUI (Ink-equiv render engine, Vim mode, themes, keybindings) — `src/ink/`, `src/vim/`.
-- [ ] Feature-flag build system (88 compile-time flags) — `scripts/build.ts`.
-- [ ] Async/background Task management (Task Create/Get/List/Stop) — needs a scheduler/daemon; overlaps
-      with the deferred Remote/coordinator work. Synchronous `Task` tool exists today.
-- [ ] Rate-limit / billing header display — cosmetic, tied to the deferred Real TUI.
+### Remaining — port ALL of it (target: full parity)
+
+Nothing is deferred. Everything below is planned work toward feature parity with vibelearn.
+Rough dependency order (do top-down; later items lean on earlier infra).
+
+1. [ ] **Permission gate + sandbox toggle** — gate every tool call (ask/allow/deny), enforce plan mode.
+       Foundation for everything else. `src/services/permissions*`, sandbox toggle.
+2. [ ] **Async/background Task management** — Task Create/Get/List/Output/Stop, a task registry + scheduler.
+       `src/tasks/`. Upgrades today's synchronous `Task`.
+3. [ ] **Real TUI** — Bubbletea/lipgloss equivalent of the Ink renderer: spinner, tool-call panels,
+       streaming markdown, live todo/goal footer, themes, keybindings, Vim mode. `src/ink/`, `src/vim/`.
+4. [ ] **Rate-limit / billing header display** — ride on the new TUI. `src/services/api/`, cost-tracker.
+5. [ ] **MCP client** — connection manager, OAuth (xaa/idp), registry, transports, rich output,
+       MCP tools (MCPTool/McpAuth/ListMcpResources/ReadMcpResource). `src/services/mcp/`.
+6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.
+7. [ ] **Memory subsystem** — SessionMemory, extractMemories, autoDream, memdir, team memory sync +
+       secret scanner, contextCollapse. `src/services/`, `src/memdir/`.
+8. [ ] **Skills system** — bundled + user-dir skills, SkillTool, ToolSearch, skill loader. `src/skills/`.
+9. [ ] **Plugins / marketplace** — install/manage, plugin CLI commands. `src/services/plugins/`.
+10. [ ] **Bedrock + Vertex providers** — AWS SigV4 + GCP ADC signing over the Anthropic Messages shape.
+       `src/services/api/`.
+11. [ ] **Remote / server / coordinator** — WebSocket sessions, RemoteSessionManager, permission bridge,
+       upstream proxy/relay, multi-agent coordinator. `src/remote/`, `src/server/`, `src/coordinator/`.
+12. [ ] **Voice** — streaming STT, keyterms, push-to-talk, dictation. `src/services/voice*`.
+13. [ ] **IDE integration** — VS Code / JetBrains bridge, selection, diff-in-IDE. `src/bridge/`.
+14. [ ] **Full slash-command surface** — port the remaining ~110 commands from `src/commands/`.
+15. [ ] **Feature-flag build system** — compile-time flag bundler equivalent to `scripts/build.ts`.
+
+See `_vibelearn/learnvibe/FEATURES.md` for the complete flag/subsystem inventory.
 
 ## Notes
 - `_vibelearn/learnvibe` is reference source only — not wired into the Go build.

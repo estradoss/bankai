@@ -6,9 +6,9 @@ commands in a single static Go binary. Also ships a persistent `/goal` command (
 this port) inspired by [codex](https://github.com/openai/codex) and
 [pi-goal](https://github.com/code-yeongyu/pi-goal).
 
-The port covers vibelearn's essential agent surface; larger subsystems (real TUI, MCP, LSP,
-memory, remote/coordinator, voice, plugins) are intentionally not ported — see
-[What's not ported yet](#whats-not-ported-yet).
+**Goal: full parity.** The core agent surface is ported; the larger subsystems (real TUI, MCP,
+LSP, memory, remote/coordinator, voice, plugins) are on the active roadmap, not deferred — see
+[Port status](#port-status-vs-vibelearn).
 
 ## Interop with Claude Code
 
@@ -129,24 +129,23 @@ Reference source lives under `_vibelearn/learnvibe` (not built, not committed �
   /doctor /clear /dump /exit`.
 - Claude Code JSONL transcript interop (`-c` / `--resume`).
 
-### What's not ported yet ❌
-Deferred by design; tracked in [CLAUDE.md](./CLAUDE.md).
+### Roadmap to full parity 🚧
+Not deferred — planned work, ordered by dependency in [CLAUDE.md](./CLAUDE.md).
 
-| area | vibelearn has | status here |
-|------|---------------|-------------|
-| **Real TUI** | Ink/React render engine, Vim mode, themes, keybindings, statusline | plain stdin REPL + ANSI |
-| **Permission gate** | tool permissions, sandbox toggle | none — tools run unrestricted |
-| **Plan mode** | edits blocked until plan approved | advisory only (prompt), not enforced |
-| **IDE integration** | VS Code / JetBrains bridge, diff-in-IDE | not ported |
-| **Bedrock + Vertex** | AWS SigV4 / GCP ADC providers | not ported (use `ANTHROPIC_BASE_URL`) |
-| **MCP** | full client, OAuth, registry, transports | not ported |
-| **LSP** | diagnostics client | not ported |
-| **Memory** | SessionMemory, extractMemories, autoDream, memdir, team sync | not ported |
-| **Skills** | bundled + user skill system | not ported |
-| **Plugins** | install/manage, marketplace | not ported |
-| **Remote/coordinator** | WebSocket sessions, multi-agent, upstream proxy | not ported |
-| **Async tasks** | background Task Create/Get/List/Stop, cron triggers | only synchronous `Task` |
-| **Voice** | streaming STT, dictation | not ported |
-| **~120 slash commands** | full command surface | ~14 core commands |
-| **Feature-flag build** | 88 compile-time flags | plain `make build` |
-| **Cost UI** | rate-limit / billing header display | `/cost` totals only |
+| # | area | vibelearn has | status here |
+|---|------|---------------|-------------|
+| 1 | **Permission gate** | tool permissions, sandbox toggle | none yet — tools run unrestricted; enforces plan mode too |
+| 2 | **Async tasks** | background Task Create/Get/List/Stop, cron triggers | only synchronous `Task` today |
+| 3 | **Real TUI** | Ink render engine, Vim mode, themes, keybindings, statusline | plain stdin REPL + ANSI |
+| 4 | **Cost UI** | rate-limit / billing header display | `/cost` totals only |
+| 5 | **MCP** | full client, OAuth, registry, transports | planned |
+| 6 | **LSP** | diagnostics client | planned |
+| 7 | **Memory** | SessionMemory, extractMemories, autoDream, memdir, team sync | planned |
+| 8 | **Skills** | bundled + user skill system | planned |
+| 9 | **Plugins** | install/manage, marketplace | planned |
+| 10 | **Bedrock + Vertex** | AWS SigV4 / GCP ADC providers | planned (gateway works via `ANTHROPIC_BASE_URL`) |
+| 11 | **Remote/coordinator** | WebSocket sessions, multi-agent, upstream proxy | planned |
+| 12 | **Voice** | streaming STT, dictation | planned |
+| 13 | **IDE integration** | VS Code / JetBrains bridge, diff-in-IDE | planned |
+| 14 | **Full command surface** | ~120 slash commands | ~14 core commands |
+| 15 | **Feature-flag build** | 88 compile-time flags | plain `make build` |
