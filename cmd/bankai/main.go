@@ -308,6 +308,9 @@ func run(o opts) error {
 	cmdReg.Register(commands.Permissions{})
 	cmdReg.Register(commands.Limits{})
 	cmdReg.Register(commands.MCP{})
+	cmdReg.Register(commands.PWD{})
+	cmdReg.Register(commands.Tools{})
+	cmdReg.Register(commands.System{})
 	if memStore != nil {
 		cmdReg.Register(commands.Memory{Index: memStore.Index})
 	}
@@ -406,7 +409,8 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /limits /mcp /memory /init /commit /review /doctor /exit
+  /todos /plan /permissions /limits /mcp /memory /pwd /tools /system
+  /init /commit /review /doctor /exit
 
 Permissions:
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan

@@ -80,7 +80,8 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        upstream proxy/relay, multi-agent coordinator. `src/remote/`, `src/server/`, `src/coordinator/`.
 12. [ ] **Voice** — streaming STT, keyterms, push-to-talk, dictation. `src/services/voice*`.
 13. [ ] **IDE integration** — VS Code / JetBrains bridge, selection, diff-in-IDE. `src/bridge/`.
-14. [ ] **Full slash-command surface** — port the remaining ~110 commands from `src/commands/`.
+14. [~] **Full slash-command surface** — ongoing. Added `/permissions /limits /mcp /memory /pwd
+       /tools /system` atop the existing set. (~100 remain from `src/commands/`.)
 15. [ ] **Feature-flag build system** — compile-time flag bundler equivalent to `scripts/build.ts`.
 
 See `_vibelearn/learnvibe/FEATURES.md` for the complete flag/subsystem inventory.
