@@ -5,3 +5,4 @@ _vibelearn/
 .env
 .env.local
 _crush/
+tmp/

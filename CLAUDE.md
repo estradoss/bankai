@@ -4,6 +4,11 @@ Terminal coding agent. Go port. Currently a thin slice of the TypeScript origina
 (`_vibelearn/learnvibe`). Anthropic-only backend + Claude Code JSONL session interop +
 the original `/goal` persistent-objective engine.
 
+> **Active initiative:** migrating the LLM transport + tool loop to
+> `charm.land/fantasy` to make the code leaner (Anthropic-only for now; drops
+> `internal/codex`, replaces `internal/provider` SSE + `internal/engine` loop).
+> OAuth-through-fantasy already proven in `tmp/pilot`. See **`PLAN.md`**.
+
 ## What exists today
 - Agent loop (`internal/engine`): stream → tool_use dispatch → repeat.
 - Backend: Anthropic Messages API streaming only (`internal/provider/anthropic.go`).
