@@ -17,6 +17,7 @@ import (
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
 	"github.com/estradoss/bankai/internal/mcp"
+	"github.com/estradoss/bankai/internal/memory"
 	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
@@ -192,7 +193,25 @@ func run(o opts) error {
 		defer mcpMgr.Close()
 	}
 
+	// Memory: file-based store under ~/.claude/projects/<sanitized-cwd>/memory.
+	var memStore *memory.Store
+	if projDir, err := transcript.ProjectDir(wd); err == nil {
+		memStore = memory.NewStore(filepath.Join(projDir, "memory"))
+		toolReg.Register(tools.CreateMemoryTool{Store: memStore})
+		toolReg.Register(tools.SearchMemoryTool{Store: memStore})
+		toolReg.Register(tools.DeleteMemoryTool{Store: memStore})
+	}
+
 	eng := engine.New(client, toolReg, goals)
+
+	// Seed the session with the memory index so the model knows what it has
+	// stored and can recall specifics via search_memory.
+	if memStore != nil {
+		if idx := memStore.Index(); idx != "" {
+			eng.System += "\n\n# Persistent memory\nYou have durable memories from past sessions. Index:\n\n" +
+				idx + "\nUse search_memory to read any memory's full content."
+		}
+	}
 
 	// Permission gate. Rules come from ~/.claude/settings.json and the project's
 	// .claude/settings.json(.local). Mode precedence: --permission-mode flag >
@@ -278,6 +297,9 @@ func run(o opts) error {
 	cmdReg.Register(commands.Permissions{})
 	cmdReg.Register(commands.Limits{})
 	cmdReg.Register(commands.MCP{})
+	if memStore != nil {
+		cmdReg.Register(commands.Memory{Index: memStore.Index})
+	}
 	cmdReg.Register(commands.Init{})
 	cmdReg.Register(commands.Commit{})
 	cmdReg.Register(commands.Review{})
@@ -373,7 +395,7 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /limits /mcp /init /commit /review /doctor /exit
+  /todos /plan /permissions /limits /mcp /memory /init /commit /review /doctor /exit
 
 Permissions:
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan

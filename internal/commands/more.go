@@ -141,6 +141,22 @@ func (Plan) Run(ctx Context, args string) (Result, error) {
 	return Result{Submit: "You are in PLAN MODE. Research the codebase using read-only tools (Read, Glob, Grep, Bash for inspection only — no edits, no writes). Do NOT modify any files. When you have a concrete implementation plan, call the ExitPlanMode tool with the plan as markdown for my approval.\n\nTask: " + task}, nil
 }
 
+// Memory lists stored memories via the injected index.
+type Memory struct{ Index func() string }
+
+func (Memory) Name() string        { return "memory" }
+func (Memory) Description() string { return "List persistent memories for this project" }
+func (m Memory) Run(ctx Context, args string) (Result, error) {
+	if m.Index == nil {
+		return Result{Text: "memory is not enabled for this session"}, nil
+	}
+	idx := m.Index()
+	if strings.TrimSpace(idx) == "" {
+		return Result{Text: "no memories stored yet"}, nil
+	}
+	return Result{Text: idx}, nil
+}
+
 // MCP lists MCP tools currently bridged into the tool registry.
 type MCP struct{}
 

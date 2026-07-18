@@ -61,8 +61,11 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        all servers non-fatally and bridges tools as `mcp__<server>__<tool>` (`tools.MCPTool`).
        `/mcp` lists them. (SSE/HTTP transports, OAuth/xaa, resources still TODO.)
 6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.
-7. [ ] **Memory subsystem** — SessionMemory, extractMemories, autoDream, memdir, team memory sync +
-       secret scanner, contextCollapse. `src/services/`, `src/memdir/`.
+7. [~] **Memory subsystem** — `internal/memory`: file-based memdir store under
+       `~/.claude/projects/<sanitized>/memory` (frontmatter md files: name/description/type
+       user|feedback|project|reference, MEMORY.md index, keyword relevance search). Tools
+       `create_memory/search_memory/delete_memory`; MEMORY.md index seeded into the system prompt;
+       `/memory` command. (Auto-extract/dream, team sync + secret scanner still TODO.)
 8. [~] **Skills system** — `internal/skills` loader (user `~/.claude/skills` + project
        `.claude/skills`, SKILL.md frontmatter parse, project overrides user) + `Skill` tool that
        enumerates skills in its description and returns a skill's body on invocation. (Bundled
