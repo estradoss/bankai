@@ -36,6 +36,7 @@ type opts struct {
 	sessionID string
 	model     string
 	permMode  string
+	sandbox   bool
 	help      bool
 	ver       bool
 }
@@ -52,6 +53,7 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.sessionID, "session-id", "", "start a new session with this uuid (interop with claude --session-id)")
 	fs.StringVar(&o.model, "model", "", "override BANKAI_MODEL for this run")
 	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
+	fs.BoolVar(&o.sandbox, "sandbox", false, "run Bash commands in an OS sandbox (no network, ro fs except cwd/tmp)")
 	fs.BoolVar(&o.help, "h", false, "help")
 	fs.BoolVar(&o.help, "help", false, "help")
 	fs.BoolVar(&o.ver, "v", false, "version")
@@ -118,8 +120,11 @@ func run(o opts) error {
 
 	// Sub-agent tool registry: same file/search/exec tools, but no recursion
 	// (no Task) and no goal mutation.
+	sandboxWd, _ := os.Getwd()
+	bashTool := tools.BashTool{Sandbox: o.sandbox, Workdir: sandboxWd}
+
 	subReg := tools.NewRegistry()
-	subReg.Register(tools.BashTool{})
+	subReg.Register(bashTool)
 	subReg.Register(tools.ReadTool{})
 	subReg.Register(tools.EditTool{})
 	subReg.Register(tools.WriteTool{})
@@ -134,7 +139,7 @@ func run(o opts) error {
 	}
 
 	toolReg := tools.NewRegistry()
-	toolReg.Register(tools.BashTool{})
+	toolReg.Register(bashTool)
 	toolReg.Register(tools.ReadTool{})
 	toolReg.Register(tools.EditTool{})
 	toolReg.Register(tools.WriteTool{})
@@ -346,5 +351,7 @@ Slash commands (REPL):
 Permissions:
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan
                             (interactive defaults to 'default'; -p defaults to bypass)
+  --sandbox                 run Bash in an OS sandbox (bwrap/sandbox-exec):
+                            no network, read-only fs except cwd + /tmp
   /permissions [mode]       show or switch mode at runtime`)
 }

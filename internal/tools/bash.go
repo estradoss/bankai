@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-type BashTool struct{}
+// BashTool runs shell commands. When Sandbox is true, commands run under an OS
+// sandbox (no network, read-only fs except Workdir + /tmp); see sandboxWrap.
+type BashTool struct {
+	Sandbox bool
+	Workdir string
+}
 
 func (BashTool) Name() string { return "Bash" }
 
@@ -27,7 +32,7 @@ func (BashTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (BashTool) Call(ctx context.Context, input json.RawMessage) (Result, error) {
+func (b BashTool) Call(ctx context.Context, input json.RawMessage) (Result, error) {
 	var in struct {
 		Command   string `json:"command"`
 		TimeoutMS int    `json:"timeout_ms"`
@@ -47,7 +52,15 @@ func (BashTool) Call(ctx context.Context, input json.RawMessage) (Result, error)
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "/bin/sh", "-c", in.Command)
+	argv := []string{"/bin/sh", "-c", in.Command}
+	if b.Sandbox {
+		wrapped, err := sandboxWrap(in.Command, b.Workdir)
+		if err != nil {
+			return Result{IsError: true, Output: err.Error()}, nil
+		}
+		argv = wrapped
+	}
+	cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
 	out, err := cmd.CombinedOutput()
 	res := Result{Output: string(out)}
 	if cctx.Err() == context.DeadlineExceeded {

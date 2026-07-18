@@ -41,7 +41,9 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        asker (y/always/no) wired through the REPL. Gate in `engine.Perms`; `--permission-mode` flag +
        `/permissions` cmd; `/plan` hard-engages plan mode. Rules + defaultMode load from
        `~/.claude/settings.json` and project `.claude/settings.json(.local)` (Claude-Code
-       `Bash(git:*)` rule syntax, substring subset). (Sandbox toggle still TODO.)
+       `Bash(git:*)` rule syntax, substring subset). Sandbox toggle done: `--sandbox` runs Bash
+       under bwrap (Linux) / sandbox-exec (macOS) — no network, ro fs except cwd+/tmp; fails
+       CLOSED (never silently unsandboxed) when no backend. `internal/tools/bash_sandbox.go`.
 2. [x] **Async/background Task management** — `internal/task` registry (goroutine per task,
        status running/completed/failed/stopped, cancellable via ctx) + `TaskCreate/TaskGet/
        TaskList/TaskOutput/TaskStop` tools. Reuses the SubagentRunner. Complements the synchronous

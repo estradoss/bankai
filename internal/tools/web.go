@@ -81,11 +81,11 @@ func httpGet(ctx context.Context, u string) (body, ctype string, err error) {
 }
 
 var (
-	reScript      = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	reStyle       = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	reTag         = regexp.MustCompile(`(?s)<[^>]+>`)
-	reWS          = regexp.MustCompile(`[ \t]+`)
-	reBlankLines  = regexp.MustCompile(`\n{3,}`)
+	reScript     = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	reStyle      = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	reTag        = regexp.MustCompile(`(?s)<[^>]+>`)
+	reWS         = regexp.MustCompile(`[ \t]+`)
+	reBlankLines = regexp.MustCompile(`\n{3,}`)
 )
 
 func looksHTML(s string) bool {
