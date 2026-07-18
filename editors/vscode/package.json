@@ -1,0 +1,16 @@
+{
+  "name": "bankai-ide",
+  "displayName": "bankai IDE bridge",
+  "description": "Connects VS Code to a running bankai agent (bankai --ide): shares the current selection and diagnostics, and handles the agent's open-file / show-diff requests.",
+  "version": "0.1.0",
+  "publisher": "bankai",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "bankai.reconnect", "title": "bankai: Reconnect to agent bridge" }
+    ]
+  }
+}

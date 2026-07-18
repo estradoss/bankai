@@ -289,6 +289,124 @@ func (c *Client) OpenAndDiagnose(ctx context.Context, uri, languageID, text stri
 	return d, nil
 }
 
+// didOpen notifies the server that a document is open (idempotent enough for
+// query use — servers accept repeated opens as re-syncs).
+func (c *Client) didOpen(uri, languageID, text string) error {
+	return c.notify("textDocument/didOpen", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri": uri, "languageId": languageID, "version": 1, "text": text,
+		},
+	})
+}
+
+// Hover opens the document and returns the server's hover text at the given
+// 0-based line/character, or "" if there is none.
+func (c *Client) Hover(ctx context.Context, uri, languageID, text string, line, char int) (string, error) {
+	if err := c.didOpen(uri, languageID, text); err != nil {
+		return "", err
+	}
+	res, err := c.call(ctx, "textDocument/hover", map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": uri},
+		"position":     map[string]interface{}{"line": line, "character": char},
+	})
+	if err != nil {
+		return "", err
+	}
+	var h struct {
+		Contents json.RawMessage `json:"contents"`
+	}
+	if err := json.Unmarshal(res, &h); err != nil || len(h.Contents) == 0 {
+		return "", nil
+	}
+	return extractHover(h.Contents), nil
+}
+
+// extractHover flattens LSP hover contents, which may be a string, a
+// {language,value} object, a {kind,value} MarkupContent, or an array of those.
+func extractHover(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var obj struct {
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.Value != "" {
+		return obj.Value
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) == nil {
+		parts := make([]string, 0, len(arr))
+		for _, e := range arr {
+			if p := extractHover(e); p != "" {
+				parts = append(parts, p)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// Location is a resolved definition site.
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
+}
+
+// Definition opens the document and returns definition locations at the given
+// 0-based line/character.
+func (c *Client) Definition(ctx context.Context, uri, languageID, text string, line, char int) ([]Location, error) {
+	if err := c.didOpen(uri, languageID, text); err != nil {
+		return nil, err
+	}
+	res, err := c.call(ctx, "textDocument/definition", map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": uri},
+		"position":     map[string]interface{}{"line": line, "character": char},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Result may be a single Location or an array of Locations.
+	var one Location
+	if json.Unmarshal(res, &one) == nil && one.URI != "" {
+		return []Location{one}, nil
+	}
+	var many []Location
+	_ = json.Unmarshal(res, &many)
+	return many, nil
+}
+
+// TextEdit is a single replacement within a document.
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// WorkspaceEdit maps document URIs to the edits to apply there. Only the
+// `changes` form is handled (not the newer `documentChanges`).
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes"`
+}
+
+// Rename asks the server to rename the symbol at the position and returns the
+// resulting workspace edit (edits are not applied here).
+func (c *Client) Rename(ctx context.Context, uri, languageID, text string, line, char int, newName string) (WorkspaceEdit, error) {
+	if err := c.didOpen(uri, languageID, text); err != nil {
+		return WorkspaceEdit{}, err
+	}
+	res, err := c.call(ctx, "textDocument/rename", map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": uri},
+		"position":     map[string]interface{}{"line": line, "character": char},
+		"newName":      newName,
+	})
+	if err != nil {
+		return WorkspaceEdit{}, err
+	}
+	var we WorkspaceEdit
+	_ = json.Unmarshal(res, &we)
+	return we, nil
+}
+
 // Close shuts the server down.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {

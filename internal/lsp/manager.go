@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -134,6 +135,105 @@ func (m *Manager) Diagnose(ctx context.Context, file string) ([]Diagnostic, erro
 		return nil, err
 	}
 	return c.OpenAndDiagnose(ctx, "file://"+abs, langID, string(text), 3*time.Second)
+}
+
+// Hover returns hover text at a 0-based line/character in a file, starting the
+// server on first use. Empty string with nil error means no server or no hover.
+func (m *Manager) Hover(ctx context.Context, file string, line, char int) (string, error) {
+	c, langID, abs, text, err := m.openFor(ctx, file)
+	if err != nil || c == nil {
+		return "", err
+	}
+	return c.Hover(ctx, "file://"+abs, langID, text, line, char)
+}
+
+// Definition returns definition locations at a 0-based line/character in a file.
+func (m *Manager) Definition(ctx context.Context, file string, line, char int) ([]Location, error) {
+	c, langID, abs, text, err := m.openFor(ctx, file)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	return c.Definition(ctx, "file://"+abs, langID, text, line, char)
+}
+
+// Rename renames the symbol at a 0-based line/character and applies the
+// resulting edits to every affected file on disk. Returns the number of files
+// changed and their paths.
+func (m *Manager) Rename(ctx context.Context, file string, line, char int, newName string) (int, []string, error) {
+	c, langID, abs, text, err := m.openFor(ctx, file)
+	if err != nil || c == nil {
+		return 0, nil, err
+	}
+	we, err := c.Rename(ctx, "file://"+abs, langID, text, line, char, newName)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(we.Changes) == 0 {
+		return 0, nil, nil
+	}
+	var changed []string
+	for uri, edits := range we.Changes {
+		path := strings.TrimPrefix(uri, "file://")
+		if err := applyEdits(path, edits); err != nil {
+			return len(changed), changed, err
+		}
+		changed = append(changed, path)
+	}
+	sort.Strings(changed)
+	return len(changed), changed, nil
+}
+
+// applyEdits applies a document's text edits to the file on disk. Edits are
+// applied from the end of the document backwards so earlier offsets stay valid.
+func applyEdits(path string, edits []TextEdit) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.SplitAfter(string(raw), "\n")
+	// Sort edits by descending start position.
+	sort.Slice(edits, func(i, j int) bool {
+		a, b := edits[i].Range.Start, edits[j].Range.Start
+		if a.Line != b.Line {
+			return a.Line > b.Line
+		}
+		return a.Character > b.Character
+	})
+	offset := func(p Position) int {
+		o := 0
+		for i := 0; i < p.Line && i < len(lines); i++ {
+			o += len(lines[i])
+		}
+		return o + p.Character
+	}
+	s := string(raw)
+	for _, e := range edits {
+		start := offset(e.Range.Start)
+		end := offset(e.Range.End)
+		if start < 0 || end > len(s) || start > end {
+			continue
+		}
+		s = s[:start] + e.NewText + s[end:]
+	}
+	return os.WriteFile(path, []byte(s), 0o644)
+}
+
+// openFor resolves the server for a file and reads its contents. A nil client
+// with nil error means no server is configured for the file type.
+func (m *Manager) openFor(ctx context.Context, file string) (c *Client, langID, abs, text string, err error) {
+	c, langID, err = m.clientFor(ctx, file)
+	if err != nil || c == nil {
+		return nil, "", "", "", err
+	}
+	abs, err = filepath.Abs(file)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	b, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	return c, langID, abs, string(b), nil
 }
 
 // Close shuts every started server down.

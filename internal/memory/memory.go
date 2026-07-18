@@ -121,6 +121,10 @@ func (s *Store) Save(m Memory) error {
 	if strings.TrimSpace(m.Name) == "" {
 		return fmt.Errorf("memory name is required")
 	}
+	// Secret scanner: never persist credentials to a plaintext memory file.
+	if hits := ScanSecrets(m.Body + "\n" + m.Description); len(hits) > 0 {
+		return fmt.Errorf("%s", SecretError(hits))
+	}
 	if m.Type == "" {
 		m.Type = TypeProject
 	}

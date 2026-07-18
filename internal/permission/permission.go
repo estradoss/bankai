@@ -62,9 +62,12 @@ const (
 func toolCategory(name string) category {
 	switch name {
 	case "Read", "Glob", "Grep", "WebFetch", "WebSearch",
-		"get_goal", "create_goal", "update_goal", "TodoWrite", "ExitPlanMode":
+		"get_goal", "create_goal", "update_goal", "TodoWrite", "ExitPlanMode",
+		"ToolSearch", "Sleep", "AskUserQuestion",
+		"lsp_diagnostics", "lsp_hover", "lsp_definition",
+		"ide_selection", "ide_open", "ide_diff", "transcribe":
 		return catReadOnly
-	case "Edit", "Write", "NotebookEdit":
+	case "Edit", "Write", "NotebookEdit", "Config", "lsp_rename":
 		return catEdit
 	case "Task":
 		return catTask

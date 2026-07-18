@@ -35,7 +35,8 @@ func (SkillTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"name": {"type": "string", "description": "Exact name of the skill to invoke"}
+			"name": {"type": "string", "description": "Exact name of the skill to invoke"},
+			"args": {"type": "string", "description": "Optional arguments passed through to the skill"}
 		},
 		"required": ["name"]
 	}`)
@@ -44,6 +45,7 @@ func (SkillTool) InputSchema() json.RawMessage {
 func (t SkillTool) Call(ctx context.Context, input json.RawMessage) (Result, error) {
 	var in struct {
 		Name string `json:"name"`
+		Args string `json:"args"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{IsError: true, Output: fmt.Sprintf("bad input: %v", err)}, nil
@@ -69,5 +71,9 @@ func (t SkillTool) Call(ctx context.Context, input json.RawMessage) (Result, err
 	if sk.Body == "" {
 		return Result{Output: fmt.Sprintf("Skill %q has no instructions.", sk.Name)}, nil
 	}
-	return Result{Output: fmt.Sprintf("# Skill: %s\n\n%s", sk.Name, sk.Body)}, nil
+	out := fmt.Sprintf("# Skill: %s\n\n%s", sk.Name, sk.Body)
+	if strings.TrimSpace(in.Args) != "" {
+		out += fmt.Sprintf("\n\n## Input\n\n%s", in.Args)
+	}
+	return Result{Output: out}, nil
 }

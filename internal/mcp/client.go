@@ -42,6 +42,13 @@ type Client struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// HTTP (streamable-HTTP) transport. When httpURL is set, call/notify use
+	// HTTP POST instead of the stdio pipes above.
+	httpURL    string
+	httpClient *httpDoer
+	sessionID  string // Mcp-Session-Id, captured from the initialize response
+	authHeader string // optional "Authorization" value
 }
 
 type rpcRequest struct {
@@ -134,6 +141,9 @@ func (c *Client) readLoop(r io.Reader) {
 
 // call sends a request and waits for its matching response.
 func (c *Client) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
+	if c.httpURL != "" {
+		return c.httpCall(ctx, method, params)
+	}
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -161,6 +171,9 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 }
 
 func (c *Client) notify(method string, params interface{}) error {
+	if c.httpURL != "" {
+		return c.httpNotify(context.Background(), method, params)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.enc.Encode(rpcNotification{JSONRPC: "2.0", Method: method, Params: params})
@@ -290,11 +303,14 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	return b.String(), nil
 }
 
-// Close terminates the server process.
+// Close terminates the server process (stdio) or is a no-op (HTTP).
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
+		if c.httpURL != "" {
+			return
+		}
 		_ = c.stdin.Close()
-		if c.cmd.Process != nil {
+		if c.cmd != nil && c.cmd.Process != nil {
 			_ = c.cmd.Process.Kill()
 		}
 	})

@@ -3,19 +3,37 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 )
 
-// ServerConfig is one entry under settings.json "mcpServers". Only the stdio
-// transport is supported; entries with a non-stdio "type" or no command are
-// skipped.
+// ServerConfig is one entry under settings.json "mcpServers". Two transports are
+// supported: stdio (Command set) and streamable HTTP (Type "http"/"sse"/"streamable-http"
+// with URL set). Entries matching neither are skipped.
 type ServerConfig struct {
 	Type    string            `json:"type"`
 	Command string            `json:"command"`
 	Args    []string          `json:"args"`
 	Env     map[string]string `json:"env"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Auth    string            `json:"auth"` // "oauth" triggers the OAuth 2.1 flow
+}
+
+// isHTTP reports whether the config selects the HTTP transport.
+func (c ServerConfig) isHTTP() bool {
+	if c.URL == "" {
+		return false
+	}
+	switch c.Type {
+	case "http", "sse", "streamable-http", "streamableHttp":
+		return true
+	case "":
+		return true // URL present, no explicit type → assume HTTP
+	}
+	return false
 }
 
 type settingsFile struct {
@@ -104,10 +122,31 @@ func Start(ctx context.Context, configs map[string]ServerConfig) (*Manager, []Br
 
 	for _, name := range names {
 		cfg := configs[name]
-		if cfg.Command == "" || (cfg.Type != "" && cfg.Type != "stdio") {
-			continue // only stdio supported
+		var c *Client
+		var err error
+		switch {
+		case cfg.isHTTP():
+			authHeader := cfg.Headers["Authorization"]
+			if cfg.Auth == "oauth" && authHeader == "" {
+				oc := &OAuthConfig{
+					ResourceURL: cfg.URL,
+					Authorize:   BrowserAuthorizer,
+					RedirectURI: "http://127.0.0.1:8765/callback",
+					ClientName:  "bankai",
+				}
+				tok, aerr := oc.Authenticate(ctx)
+				if aerr != nil {
+					errs[name] = fmt.Errorf("oauth: %w", aerr)
+					continue
+				}
+				authHeader = tok.Header()
+			}
+			c, err = DialHTTP(ctx, name, cfg.URL, authHeader)
+		case cfg.Command != "" && (cfg.Type == "" || cfg.Type == "stdio"):
+			c, err = Dial(ctx, name, cfg.Command, cfg.Args, envSlice(cfg.Env))
+		default:
+			continue // unsupported transport
 		}
-		c, err := Dial(ctx, name, cfg.Command, cfg.Args, envSlice(cfg.Env))
 		if err != nil {
 			errs[name] = err
 			continue

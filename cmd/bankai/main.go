@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
 
+	"github.com/estradoss/bankai/internal/bridge"
 	"github.com/estradoss/bankai/internal/codex"
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/config"
@@ -23,29 +26,37 @@ import (
 	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/plugins"
 	"github.com/estradoss/bankai/internal/provider"
+	"github.com/estradoss/bankai/internal/server"
 	"github.com/estradoss/bankai/internal/session"
 	"github.com/estradoss/bankai/internal/skills"
 	"github.com/estradoss/bankai/internal/task"
+	"github.com/estradoss/bankai/internal/theme"
 	"github.com/estradoss/bankai/internal/tools"
 	"github.com/estradoss/bankai/internal/transcript"
 	"github.com/estradoss/bankai/internal/tui"
+	"github.com/estradoss/bankai/internal/voice"
 )
 
 const version = "0.1.0"
 
 type opts struct {
-	prompt    string
-	printMode bool
-	cont      bool
-	resume    string
-	sessionID string
-	model     string
-	permMode  string
-	sandbox   bool
-	tui       bool
-	features  stringList
-	help      bool
-	ver       bool
+	prompt     string
+	printMode  bool
+	cont       bool
+	resume     string
+	sessionID  string
+	model      string
+	permMode   string
+	sandbox    bool
+	tui        bool
+	serve      bool
+	servePort  string
+	serveToken string
+	ide        bool
+	idePort    int
+	features   stringList
+	help       bool
+	ver        bool
 }
 
 // stringList collects a repeatable string flag (e.g. --feature X --feature Y).
@@ -71,6 +82,11 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
 	fs.BoolVar(&o.sandbox, "sandbox", false, "run Bash commands in an OS sandbox (no network, ro fs except cwd/tmp)")
 	fs.BoolVar(&o.tui, "tui", false, "use the rich Bubbletea TUI instead of the line REPL")
+	fs.BoolVar(&o.serve, "serve", false, "expose the agent as a remote HTTP+SSE session instead of the REPL")
+	fs.StringVar(&o.servePort, "serve-port", "8787", "port for --serve")
+	fs.StringVar(&o.serveToken, "serve-token", "", "bearer token required by --serve clients (empty = no auth)")
+	fs.BoolVar(&o.ide, "ide", false, "run the IDE bridge (lockfile + HTTP) so an editor extension can connect")
+	fs.IntVar(&o.idePort, "ide-port", 8788, "port for the IDE bridge (--ide)")
 	fs.Var(&o.features, "feature", "enable/disable a feature flag (repeatable): FLAG, -FLAG, FLAG=0")
 	fs.BoolVar(&o.help, "h", false, "help")
 	fs.BoolVar(&o.help, "help", false, "help")
@@ -167,8 +183,19 @@ func run(o opts) error {
 	toolReg.Register(tools.WebSearchTool{})
 	toolReg.Register(tools.TodoWriteTool{Store: todos})
 	toolReg.Register(tools.ExitPlanModeTool{})
+	toolReg.Register(tools.NotebookEditTool{})
+	toolReg.Register(tools.SleepTool{})
+	wtState := &tools.WorktreeState{}
+	toolReg.Register(tools.EnterWorktreeTool{State: wtState})
+	toolReg.Register(tools.ExitWorktreeTool{State: wtState})
+	askBridge := &tools.AskBridge{}
+	toolReg.Register(tools.AskUserQuestionTool{Bridge: askBridge})
+	toolReg.Register(tools.ToolSearchTool{Reg: toolReg})
+	toolReg.Register(&tools.REPLTool{})
+	subReg.Register(tools.NotebookEditTool{})
+	subReg.Register(tools.SleepTool{})
 	subRunner := engine.SubagentRunner(client, subReg, engine.ClaudeCodePrefix)
-	toolReg.Register(tools.AgentTool{Run: subRunner})
+	subRunnerTyped := engine.SubagentRunnerTyped(client, subReg, engine.ClaudeCodePrefix)
 	feats := feature.Resolve(os.Getenv("BANKAI_FEATURES"), o.features)
 	if feats.Enabled("TASKS") {
 		taskReg := task.NewRegistry(task.Runner(subRunner))
@@ -184,6 +211,29 @@ func run(o opts) error {
 
 	home, _ := os.UserHomeDir()
 	wd, _ := os.Getwd()
+	toolReg.Register(tools.ConfigTool{HomeDir: home, ProjectDir: wd})
+
+	// IDE bridge: editor state + agent→IDE commands. The ide_* tools always
+	// exist (graceful when no editor is connected); --ide runs the HTTP bridge
+	// and writes the discovery lockfile.
+	ideBridge := bridge.New()
+	toolReg.Register(tools.IDESelectionTool{Bridge: ideBridge})
+	toolReg.Register(tools.IDEOpenTool{Bridge: ideBridge})
+	toolReg.Register(tools.IDEDiffTool{Bridge: ideBridge})
+
+	// Voice: dictation/transcription via a local STT backend, gated by VOICE_MODE.
+	var voiceSession *voice.Session
+	if feats.Enabled("VOICE_MODE") {
+		voiceSession = voice.NewSession(nil)
+		toolReg.Register(tools.TranscribeTool{Session: voiceSession})
+	}
+	if o.ide {
+		if lock, err := bridge.WriteLockfile(home, o.idePort, o.serveToken, []string{wd}); err == nil {
+			defer bridge.RemoveLockfile(home, o.idePort)
+			fmt.Fprintf(os.Stderr, "IDE bridge on :%d (lockfile %s)\n", o.idePort, lock)
+			go func() { _ = http.ListenAndServe(fmt.Sprintf(":%d", o.idePort), ideBridge.Handler()) }()
+		}
+	}
 
 	// Plugins: ~/.claude/plugins/*/plugin.json. Each can contribute skills
 	// (skills/ subdir) and MCP servers (manifest mcpServers), merged below.
@@ -191,6 +241,13 @@ func run(o opts) error {
 	if feats.Enabled("PLUGINS") {
 		loadedPlugins = plugins.Load(home, nil)
 	}
+
+	// Task tool with any plugin-contributed agent types.
+	agentDefs := map[string]tools.AgentDef{}
+	for _, a := range plugins.CollectAgents(loadedPlugins) {
+		agentDefs[a.Name] = tools.AgentDef{Name: a.Name, Description: a.Description, Prompt: a.Prompt}
+	}
+	toolReg.Register(tools.AgentTool{Run: subRunner, RunTyped: subRunnerTyped, Agents: agentDefs})
 
 	// Skills: user (~/.claude/skills) + project (.claude/skills) SKILL.md files,
 	// plus any plugin skills/ dirs. Expose the Skill tool when any exist.
@@ -200,6 +257,7 @@ func run(o opts) error {
 			skillSet.AddPluginDir(p.SkillsDir)
 		}
 	}
+	skillSet.AddBundled() // built-in skills; user/project/plugin skills override on name
 	if feats.Enabled("SKILLS") && skillSet.Len() > 0 {
 		toolReg.Register(tools.SkillTool{Set: skillSet})
 	}
@@ -256,10 +314,38 @@ func run(o opts) error {
 	if len(lspConfigs) > 0 {
 		lspMgr = lsp.NewManager(wd, lspConfigs)
 		toolReg.Register(tools.LSPTool{Mgr: lspMgr})
+		toolReg.Register(tools.LSPHoverTool{Mgr: lspMgr})
+		toolReg.Register(tools.LSPDefinitionTool{Mgr: lspMgr})
+		toolReg.Register(tools.LSPRenameTool{Mgr: lspMgr})
 		defer lspMgr.Close()
 	}
 
 	eng := engine.New(client, toolReg, goals)
+
+	// Plugin-contributed hooks run on tool-call events (e.g. PostToolUse).
+	for _, h := range plugins.CollectHooks(loadedPlugins) {
+		event := h.Event
+		if event == "" {
+			event = "PostToolUse"
+		}
+		eng.Hooks = append(eng.Hooks, engine.Hook{Event: event, Matcher: h.Matcher, Command: h.Command})
+	}
+
+	// LSP passive-feedback: after a clean Edit/Write, surface fresh diagnostics.
+	if lspMgr != nil {
+		eng.LSPFeedback = func(ctx context.Context, filePath string) string {
+			diags, err := lspMgr.Diagnose(ctx, filePath)
+			if err != nil || len(diags) == 0 {
+				return ""
+			}
+			var b strings.Builder
+			for _, d := range diags {
+				fmt.Fprintf(&b, "  %d:%d %s: %s\n",
+					d.Range.Start.Line+1, d.Range.Start.Character+1, lsp.SeverityName(d.Severity), d.Message)
+			}
+			return strings.TrimRight(b.String(), "\n")
+		}
+	}
 
 	// Seed the session with the memory index so the model knows what it has
 	// stored and can recall specifics via search_memory.
@@ -357,6 +443,27 @@ func run(o opts) error {
 	cmdReg.Register(commands.PWD{})
 	cmdReg.Register(commands.Tools{})
 	cmdReg.Register(commands.System{})
+	cmdReg.Register(commands.Diff{})
+	cmdReg.Register(commands.GitStatus{})
+	cmdReg.Register(commands.Version{V: version})
+	cmdReg.Register(commands.Env{})
+	cmdReg.Register(commands.Stats{})
+	cmdReg.Register(commands.Usage{})
+	cmdReg.Register(commands.Rewind{})
+	cmdReg.Register(commands.Hooks{})
+	cmdReg.Register(commands.Summary{})
+	cmdReg.Register(commands.SecurityReview{})
+	cmdReg.Register(commands.Effort{})
+	cmdReg.Register(commands.OutputStyle{})
+	cmdReg.Register(commands.Export{})
+	cmdReg.Register(commands.ReleaseNotes{})
+	cmdReg.Register(commands.Copy{})
+	cmdReg.Register(commands.Theme{})
+	cmdReg.Register(commands.Vim{})
+	cmdReg.Register(commands.Plugin{})
+	if voiceSession != nil {
+		cmdReg.Register(commands.Dictate{Session: voiceSession})
+	}
 	var pluginLines []string
 	for _, p := range loadedPlugins {
 		v := p.Version
@@ -369,6 +476,9 @@ func run(o opts) error {
 	cmdReg.Register(commands.Features{Flags: feats.List()})
 	if memStore != nil {
 		cmdReg.Register(commands.Memory{Index: memStore.Index})
+		cmdReg.Register(commands.Dream{Store: memStore})
+		cmdReg.Register(commands.MemoryExtract{Store: memStore})
+		cmdReg.Register(commands.MemorySync{Store: memStore})
 	}
 	cmdReg.Register(commands.Init{})
 	cmdReg.Register(commands.Commit{})
@@ -382,10 +492,40 @@ func run(o opts) error {
 	fmt.Fprintf(os.Stderr, "bankai %s — auth=%s session=%s (%s)\n",
 		version, cfg.Source, tw.SessionID, tw.Path)
 
+	// Active color theme from settings.json "theme" (default palette otherwise).
+	if pal, ok := theme.Get(loadSetting(home, wd, "theme")); ok {
+		tui.ApplyTheme(pal)
+	}
+
+	if o.serve {
+		addr := ":" + o.servePort
+		auth := "no auth"
+		if o.serveToken != "" {
+			auth = "bearer-token auth"
+		}
+		// Multi-session manager: each POST /v1/sessions spins up a fresh engine
+		// sharing the client + tool registry. The initial `eng` backs the
+		// single-session /v1/message route too.
+		factory := func() server.Engine { return engine.New(client, toolReg, goals) }
+		mgr := server.NewManager(factory, o.serveToken)
+		mux := http.NewServeMux()
+		mux.Handle("/v1/sessions", mgr.Handler())
+		mux.Handle("/v1/sessions/", mgr.Handler())
+		server.NewTeamMemory(o.serveToken).Register(mux) // team memory sync endpoint
+		mux.Handle("/", server.New(eng, o.serveToken).Handler())
+		fmt.Fprintf(os.Stderr, "bankai remote server on %s (%s) — POST /v1/message or /v1/sessions\n", addr, auth)
+		return http.ListenAndServe(addr, mux)
+	}
+
 	if o.tui && feats.Enabled("TUI") {
-		return tui.NewBubble(ctx, eng, cmdReg, goals).Run()
+		bub := tui.NewBubble(ctx, eng, cmdReg, goals)
+		if loadSetting(home, wd, "editorMode") == "vim" {
+			bub.SetVim(true)
+		}
+		return bub.Run()
 	}
 	repl := tui.New(eng, cmdReg, goals)
+	repl.Ask = askBridge
 	return repl.Run(ctx)
 }
 
@@ -475,4 +615,35 @@ Permissions:
   --sandbox                 run Bash in an OS sandbox (bwrap/sandbox-exec):
                             no network, read-only fs except cwd + /tmp
   /permissions [mode]       show or switch mode at runtime`)
+}
+
+// loadSetting reads a top-level string setting from project then user
+// settings.json (project wins). Empty when unset.
+func loadSetting(home, wd, key string) string {
+	read := func(p string) string {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return ""
+		}
+		var m map[string]any
+		if json.Unmarshal(raw, &m) != nil {
+			return ""
+		}
+		if v, ok := m[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+	val := ""
+	if home != "" {
+		if v := read(filepath.Join(home, ".claude", "settings.json")); v != "" {
+			val = v
+		}
+	}
+	if wd != "" {
+		if v := read(filepath.Join(wd, ".claude", "settings.json")); v != "" {
+			val = v
+		}
+	}
+	return val
 }

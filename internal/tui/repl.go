@@ -12,6 +12,7 @@ import (
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
 	"github.com/estradoss/bankai/internal/permission"
+	"github.com/estradoss/bankai/internal/tools"
 )
 
 const (
@@ -29,6 +30,9 @@ type REPL struct {
 	Goals  *goal.Store
 	In     io.Reader
 	Out    io.Writer
+	// Ask, if set, receives the interactive prompter so the AskUserQuestion
+	// tool can prompt on the same stdin the REPL uses.
+	Ask *tools.AskBridge
 }
 
 func New(e *engine.Engine, r *commands.Registry, g *goal.Store) *REPL {
@@ -47,6 +51,9 @@ func (r *REPL) Run(ctx context.Context) error {
 	// stdin the REPL uses for prompts, without a second competing buffer.
 	if r.Engine.Perms != nil {
 		r.Engine.Perms.Asker = r.makeAsker(reader)
+	}
+	if r.Ask != nil {
+		r.Ask.Prompter = r.makeQuestionPrompter(reader)
 	}
 
 	for {
@@ -119,6 +126,54 @@ func (r *REPL) makeAsker(reader *bufio.Reader) permission.Asker {
 		default:
 			return permission.DecideDeny
 		}
+	}
+}
+
+// makeQuestionPrompter returns a prompter that renders each AskUserQuestion
+// question as a numbered menu on the terminal and reads the selection from the
+// shared REPL reader. Users type option numbers (space/comma separated when
+// multiSelect), or free text for the automatic "Other" choice.
+func (r *REPL) makeQuestionPrompter(reader *bufio.Reader) tools.AskPrompter {
+	return func(ctx context.Context, questions []tools.AskQuestion) ([]tools.AskAnswer, error) {
+		answers := make([]tools.AskAnswer, 0, len(questions))
+		for _, q := range questions {
+			fmt.Fprintf(r.Out, "\n%s%s%s %s\n", ansiCyan, q.Header, ansiReset, q.Question)
+			for i, o := range q.Options {
+				fmt.Fprintf(r.Out, "  %s%d%s) %s%s%s — %s\n", ansiBold, i+1, ansiReset, ansiGreen, o.Label, ansiReset, o.Description)
+			}
+			hint := "choose a number"
+			if q.MultiSelect {
+				hint = "choose numbers (space/comma separated)"
+			}
+			fmt.Fprintf(r.Out, "%s%s, or type your own answer:%s ", ansiDim, hint, ansiReset)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+
+			var selected []string
+			fields := strings.FieldsFunc(line, func(c rune) bool { return c == ' ' || c == ',' })
+			allNums := len(fields) > 0
+			for _, f := range fields {
+				n := 0
+				if _, err := fmt.Sscanf(f, "%d", &n); err != nil || n < 1 || n > len(q.Options) {
+					allNums = false
+					break
+				}
+			}
+			if allNums {
+				for _, f := range fields {
+					n := 0
+					fmt.Sscanf(f, "%d", &n)
+					selected = append(selected, q.Options[n-1].Label)
+					if !q.MultiSelect {
+						break
+					}
+				}
+			} else if line != "" {
+				selected = []string{line} // free-text "Other"
+			}
+			answers = append(answers, tools.AskAnswer{Header: q.Header, Question: q.Question, Selected: selected})
+		}
+		return answers, nil
 	}
 }
 

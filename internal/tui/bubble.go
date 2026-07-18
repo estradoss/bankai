@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/estradoss/bankai/internal/theme"
 
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/engine"
@@ -38,6 +41,11 @@ type Bubble struct {
 
 	width, height int
 	ready         bool
+
+	// Vim modal editing. vimOn enables it; vimNormal true = normal mode, false =
+	// insert mode. Ported from vibelearn's vim input mode.
+	vimOn     bool
+	vimNormal bool
 }
 
 type askState struct {
@@ -47,6 +55,7 @@ type askState struct {
 
 // tea messages
 type streamMsg string
+type toolMsg struct{ name, input string }
 type doneMsg struct{ err error }
 type askMsg struct {
 	req   permission.Request
@@ -57,11 +66,22 @@ var (
 	footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	userStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	toolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	modalStyle  = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("11")).
 			Padding(0, 1)
 )
+
+// ApplyTheme repoints the TUI styles at a palette. Call before constructing the
+// Bubble model. Ported from vibelearn's themeable TUI.
+func ApplyTheme(p theme.Palette) {
+	footerStyle = footerStyle.Foreground(lipgloss.Color(p.Footer))
+	userStyle = userStyle.Foreground(lipgloss.Color(p.Accent))
+	errStyle = errStyle.Foreground(lipgloss.Color(p.Error))
+	toolStyle = toolStyle.Foreground(lipgloss.Color(p.Tool))
+	modalStyle = modalStyle.BorderForeground(lipgloss.Color(p.Border))
+}
 
 // NewBubble constructs the Bubbletea TUI model.
 func NewBubble(ctx context.Context, e *engine.Engine, c *commands.Registry, g *goal.Store) *Bubble {
@@ -84,6 +104,13 @@ func (b *Bubble) Run() error {
 	p := tea.NewProgram(b, tea.WithAltScreen(), tea.WithContext(b.ctx))
 
 	b.engine.OnText = func(chunk string) { p.Send(streamMsg(chunk)) }
+	b.engine.OnToolStart = func(name string, input json.RawMessage) {
+		in := string(input)
+		if len(in) > 160 {
+			in = in[:157] + "..."
+		}
+		p.Send(toolMsg{name: name, input: in})
+	}
 	if b.engine.Perms != nil {
 		b.engine.Perms.Asker = func(req permission.Request) permission.Decision {
 			reply := make(chan permission.Decision, 1)
@@ -119,6 +146,11 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if b.asking != nil {
 			return b, b.handleAsk(msg)
 		}
+		if b.vimOn {
+			if cmd, consumed := b.handleVim(msg); consumed {
+				return b, cmd
+			}
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return b, tea.Quit
@@ -137,6 +169,12 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamMsg:
 		b.content += string(msg)
+		b.refresh()
+
+	case toolMsg:
+		// Tool-call panel: a bordered, colored line showing the call.
+		panel := toolStyle.Render(fmt.Sprintf("⚙ %s %s", msg.name, msg.input))
+		b.content += panel + "\n"
 		b.refresh()
 
 	case doneMsg:
@@ -206,6 +244,63 @@ func (b *Bubble) runTurn(line string) tea.Cmd {
 		err := b.engine.Submit(b.ctx, line)
 		return doneMsg{err: err}
 	}
+}
+
+// SetVim enables/disables vim modal editing (starts in normal mode).
+func (b *Bubble) SetVim(on bool) {
+	b.vimOn = on
+	b.vimNormal = on
+}
+
+// handleVim implements a compact vim input mode. Returns (cmd, consumed): when
+// consumed is true the key is fully handled and must not reach the text input.
+// Enter always falls through so submission works in either mode.
+func (b *Bubble) handleVim(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if msg.Type == tea.KeyEnter {
+		return nil, false // let normal submit path handle it
+	}
+	if !b.vimNormal {
+		// Insert mode: ESC returns to normal; everything else is normal typing.
+		if msg.Type == tea.KeyEsc {
+			b.vimNormal = true
+			return nil, true
+		}
+		return nil, false
+	}
+	// Normal mode.
+	switch msg.String() {
+	case "i":
+		b.vimNormal = false
+	case "a":
+		b.vimNormal = false
+		b.input.SetCursor(b.input.Position() + 1)
+	case "A":
+		b.vimNormal = false
+		b.input.CursorEnd()
+	case "I":
+		b.vimNormal = false
+		b.input.CursorStart()
+	case "h":
+		b.input.SetCursor(b.input.Position() - 1)
+	case "l":
+		b.input.SetCursor(b.input.Position() + 1)
+	case "0", "^":
+		b.input.CursorStart()
+	case "$":
+		b.input.CursorEnd()
+	case "x":
+		v := []rune(b.input.Value())
+		p := b.input.Position()
+		if p >= 0 && p < len(v) {
+			b.input.SetValue(string(append(v[:p], v[p+1:]...)))
+			b.input.SetCursor(p)
+		}
+	case "d":
+		// treat a lone 'd' as dd: clear the line
+		b.input.SetValue("")
+		b.input.CursorStart()
+	}
+	return nil, true // consume all other keys in normal mode
 }
 
 func (b *Bubble) handleAsk(msg tea.KeyMsg) tea.Cmd {
