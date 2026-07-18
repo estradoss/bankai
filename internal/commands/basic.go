@@ -54,4 +54,3 @@ func (Dump) Description() string { return "Dump raw message history (debug)" }
 func (Dump) Run(ctx Context, args string) (Result, error) {
 	return Result{Text: ctx.Engine.DumpMessages()}, nil
 }
-

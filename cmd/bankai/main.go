@@ -16,6 +16,7 @@ import (
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
+	"github.com/estradoss/bankai/internal/mcp"
 	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
@@ -172,6 +173,25 @@ func run(o opts) error {
 		toolReg.Register(tools.SkillTool{Set: skillSet})
 	}
 
+	// MCP: dial configured stdio servers and bridge their tools in. Failures
+	// are reported but non-fatal so a bad server doesn't block startup.
+	mcpConfigs := mcp.LoadConfigs(home, wd)
+	var mcpMgr *mcp.Manager
+	if len(mcpConfigs) > 0 {
+		mgr, bridged, errs := mcp.Start(context.Background(), mcpConfigs)
+		mcpMgr = mgr
+		tools.RegisterMCPTools(toolReg, bridged)
+		if len(bridged) > 0 {
+			fmt.Fprintf(os.Stderr, "mcp: %d tool(s) from %d server(s)\n", len(bridged), len(mcpConfigs)-len(errs))
+		}
+		for name, err := range errs {
+			fmt.Fprintf(os.Stderr, "mcp: server %q failed: %v\n", name, err)
+		}
+	}
+	if mcpMgr != nil {
+		defer mcpMgr.Close()
+	}
+
 	eng := engine.New(client, toolReg, goals)
 
 	// Permission gate. Rules come from ~/.claude/settings.json and the project's
@@ -257,6 +277,7 @@ func run(o opts) error {
 	cmdReg.Register(commands.Plan{})
 	cmdReg.Register(commands.Permissions{})
 	cmdReg.Register(commands.Limits{})
+	cmdReg.Register(commands.MCP{})
 	cmdReg.Register(commands.Init{})
 	cmdReg.Register(commands.Commit{})
 	cmdReg.Register(commands.Review{})
@@ -352,7 +373,7 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /limits /init /commit /review /doctor /exit
+  /todos /plan /permissions /limits /mcp /init /commit /review /doctor /exit
 
 Permissions:
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan

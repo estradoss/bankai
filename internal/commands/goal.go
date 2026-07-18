@@ -12,13 +12,14 @@ import (
 // GoalCmd implements /goal [subcommand|objective].
 //
 // Behavior (mirrors codex + pi-goal):
-//   /goal                 -> status
-//   /goal clear           -> remove goal
-//   /goal pause           -> pause active goal
-//   /goal resume          -> resume paused goal (also fires continuation next turn)
-//   /goal <objective>     -> set (or replace) objective. If replacing, next turn
-//                            gets an objective_updated hidden prompt.
-//   /goal --budget=N ...  -> attach token budget when setting
+//
+//	/goal                 -> status
+//	/goal clear           -> remove goal
+//	/goal pause           -> pause active goal
+//	/goal resume          -> resume paused goal (also fires continuation next turn)
+//	/goal <objective>     -> set (or replace) objective. If replacing, next turn
+//	                         gets an objective_updated hidden prompt.
+//	/goal --budget=N ...  -> attach token budget when setting
 type GoalCmd struct{}
 
 func (GoalCmd) Name() string { return "goal" }

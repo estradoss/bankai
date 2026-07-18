@@ -141,6 +141,24 @@ func (Plan) Run(ctx Context, args string) (Result, error) {
 	return Result{Submit: "You are in PLAN MODE. Research the codebase using read-only tools (Read, Glob, Grep, Bash for inspection only — no edits, no writes). Do NOT modify any files. When you have a concrete implementation plan, call the ExitPlanMode tool with the plan as markdown for my approval.\n\nTask: " + task}, nil
 }
 
+// MCP lists MCP tools currently bridged into the tool registry.
+type MCP struct{}
+
+func (MCP) Name() string        { return "mcp" }
+func (MCP) Description() string { return "List connected MCP servers and their tools" }
+func (MCP) Run(ctx Context, args string) (Result, error) {
+	var names []string
+	for _, t := range ctx.Engine.Tools.All() {
+		if strings.HasPrefix(t.Name(), "mcp__") {
+			names = append(names, t.Name())
+		}
+	}
+	if len(names) == 0 {
+		return Result{Text: "no MCP tools connected (configure mcpServers in .claude/settings.json)"}, nil
+	}
+	return Result{Text: fmt.Sprintf("MCP tools (%d):\n  %s", len(names), strings.Join(names, "\n  "))}, nil
+}
+
 // Limits shows the most recent Anthropic rate-limit / billing headers.
 type Limits struct{}
 

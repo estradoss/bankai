@@ -56,8 +56,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
 4. [x] **Rate-limit / billing header display** — `provider.RateLimit` captures anthropic-ratelimit-*
        (requests/tokens/unified + retry-after) headers off every response; `/limits` command prints
        them, and the Bubbletea footer shows live remaining budget/tokens when known.
-5. [ ] **MCP client** — connection manager, OAuth (xaa/idp), registry, transports, rich output,
-       MCP tools (MCPTool/McpAuth/ListMcpResources/ReadMcpResource). `src/services/mcp/`.
+5. [~] **MCP client** — `internal/mcp`: stdio JSON-RPC 2.0 client (initialize handshake, tools/list,
+       tools/call), config loader (mcpServers from user+project settings.json), Manager that dials
+       all servers non-fatally and bridges tools as `mcp__<server>__<tool>` (`tools.MCPTool`).
+       `/mcp` lists them. (SSE/HTTP transports, OAuth/xaa, resources still TODO.)
 6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.
 7. [ ] **Memory subsystem** — SessionMemory, extractMemories, autoDream, memdir, team memory sync +
        secret scanner, contextCollapse. `src/services/`, `src/memdir/`.
