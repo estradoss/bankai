@@ -153,7 +153,8 @@ func NewBubbleWithBanner(ctx context.Context, e *engine.Engine, c *commands.Regi
 
 	b := &Bubble{engine: e, cmds: c, goals: g, ctx: ctx, input: ti, spin: sp,
 		version: info.Version, user: info.User, cwd: info.Cwd, effort: info.Effort}
-	b.content = b.banner()
+	// content (banner) is seeded on the first WindowSizeMsg, once width is known
+	// so the header box borders align to the terminal.
 	return b
 }
 
@@ -194,14 +195,22 @@ func (b *Bubble) banner() string {
 	rightBox := lipgloss.NewStyle().Padding(0, 2).Render(tips)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 
+	bw := b.width - 2
+	if bw > 78 {
+		bw = 78
+	}
+	if bw < 20 {
+		bw = 20
+	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
+		Width(bw).
 		Render(headerStyle.Render(title) + "\n" + body)
 	return box + "\n"
 }
 
-func (b *Bubble) Init() tea.Cmd { return textinput.Blink }
+func (b *Bubble) Init() tea.Cmd { return tea.Batch(textinput.Blink, tea.ClearScreen) }
 
 // program is the running tea program, set by Run so callbacks can Send into it.
 func (b *Bubble) Run() error {
@@ -239,11 +248,12 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !b.ready {
 			b.vp = viewport.New(msg.Width, vpHeight)
 			b.ready = true
+			b.content = b.banner() // seed banner now that width is known
 		} else {
 			b.vp.Width = msg.Width
 			b.vp.Height = vpHeight
 		}
-		b.input.Width = msg.Width - 3
+		b.input.Width = msg.Width - 6
 		b.refresh()
 
 	case tea.KeyMsg:
@@ -592,7 +602,10 @@ func (b *Bubble) View() string {
 		sections = append(sections, b.renderSuggestions())
 	}
 	sections = append(sections, bottom, b.footer())
-	return strings.Join(sections, "\n")
+	out := strings.Join(sections, "\n")
+	// Fill the full terminal rect with spaces so no stale cells from the
+	// pre-altscreen scrollback bleed through empty regions.
+	return lipgloss.NewStyle().Width(b.width).Height(b.height).Render(out)
 }
 
 // bar renders a compact [██████░░░░] meter at the given fraction (0..1).
