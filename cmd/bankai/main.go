@@ -48,6 +48,7 @@ type opts struct {
 	sessionID  string
 	model      string
 	permMode   string
+	yolo       bool
 	sandbox    bool
 	tui        bool
 	serve      bool
@@ -81,6 +82,8 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.sessionID, "session-id", "", "start a new session with this uuid (interop with claude --session-id)")
 	fs.StringVar(&o.model, "model", "", "override BANKAI_MODEL for this run")
 	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
+	fs.BoolVar(&o.yolo, "yolo", false, "bypass all permission prompts (same as --permission-mode bypassPermissions)")
+	fs.BoolVar(&o.yolo, "y", false, "same as --yolo")
 	fs.BoolVar(&o.sandbox, "sandbox", false, "run Bash commands in an OS sandbox (no network, ro fs except cwd/tmp)")
 	fs.BoolVar(&o.tui, "tui", false, "use the rich Bubbletea TUI instead of the line REPL")
 	fs.BoolVar(&o.serve, "serve", false, "expose the agent as a remote HTTP+SSE session instead of the REPL")
@@ -402,6 +405,9 @@ func run(o opts) error {
 	if !mode.Valid() {
 		return fmt.Errorf("invalid --permission-mode %q", o.permMode)
 	}
+	if o.yolo {
+		mode = permission.ModeBypass
+	}
 	eng.Perms = permission.New(mode, allowRules, denyRules)
 	toolReg.Register(tools.EnterPlanModeTool{Perms: eng.Perms})
 
@@ -640,6 +646,7 @@ Slash commands (REPL):
   /init /commit /review /doctor /exit
 
 Permissions:
+  -y, --yolo                bypass ALL permission prompts (bypassPermissions)
   --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan
                             (interactive defaults to 'default'; -p defaults to bypass)
   --sandbox                 run Bash in an OS sandbox (bwrap/sandbox-exec):
