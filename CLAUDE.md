@@ -53,9 +53,9 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        prompt). Opt-in via `--tui`; line REPL stays the default fallback. Engine runs in a tea.Cmd
        goroutine, streams via p.Send, asker round-trips through a channel. (Tool-call panels,
        themes, Vim mode still TODO.) NOTE: go.mod bumped to 1.24 for bubbletea (per user decision).
-4. [~] **Rate-limit / billing header display** — `provider.RateLimit` captures anthropic-ratelimit-*
+4. [x] **Rate-limit / billing header display** — `provider.RateLimit` captures anthropic-ratelimit-*
        (requests/tokens/unified + retry-after) headers off every response; `/limits` command prints
-       them. (Live TUI header widget still TODO — rides on the future TUI.)
+       them, and the Bubbletea footer shows live remaining budget/tokens when known.
 5. [ ] **MCP client** — connection manager, OAuth (xaa/idp), registry, transports, rich output,
        MCP tools (MCPTool/McpAuth/ListMcpResources/ReadMcpResource). `src/services/mcp/`.
 6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.

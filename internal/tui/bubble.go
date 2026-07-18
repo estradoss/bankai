@@ -262,6 +262,14 @@ func (b *Bubble) footer() string {
 	if g := b.goals.Get(); g != nil {
 		parts = append(parts, goalLabel(g))
 	}
+	if rl := b.engine.Client.Limits.Snapshot(); rl.Seen {
+		switch {
+		case rl.UnifiedRemaining != "":
+			parts = append(parts, "budget="+rl.UnifiedRemaining)
+		case rl.TokensRemaining != "":
+			parts = append(parts, "tok="+rl.TokensRemaining)
+		}
+	}
 	status := "ready"
 	if b.busy {
 		status = b.spin.View() + "thinking"
