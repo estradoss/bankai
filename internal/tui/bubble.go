@@ -232,8 +232,9 @@ func (b *Bubble) renderBanner() string {
 func (b *Bubble) Init() tea.Cmd { return tea.Batch(textinput.Blink, tea.ClearScreen) }
 
 // program is the running tea program, set by Run so callbacks can Send into it.
-func (b *Bubble) Run() error {
-	p := tea.NewProgram(b, tea.WithAltScreen(), tea.WithContext(b.ctx))
+func (b *Bubble) Run(ctx context.Context) error {
+	b.ctx = ctx
+	p := tea.NewProgram(b, tea.WithAltScreen(), tea.WithContext(ctx))
 
 	b.engine.OnText = func(chunk string) { p.Send(streamMsg(chunk)) }
 	b.engine.OnToolStart = func(name string, input json.RawMessage) {

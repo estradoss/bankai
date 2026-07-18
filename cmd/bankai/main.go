@@ -556,22 +556,20 @@ func run(o opts) error {
 	// Rich Bubbletea TUI is the default on an interactive terminal; the line
 	// REPL is the fallback for pipes/non-TTY, or when forced via BANKAI_NO_TUI.
 	useTUI := feats.Enabled("TUI") && (o.tui || (isTTY() && os.Getenv("BANKAI_NO_TUI") == ""))
-	if useTUI {
-		banner := tui.BannerInfo{
+	fe := tui.Select(useTUI, tui.Deps{
+		Engine: eng,
+		Cmds:   cmdReg,
+		Goals:  goals,
+		Ask:    askBridge,
+		Banner: tui.BannerInfo{
 			Version: version,
 			User:    currentUser(),
 			Cwd:     wd,
 			Effort:  loadSetting(home, wd, "effort"),
-		}
-		bub := tui.NewBubbleWithBanner(ctx, eng, cmdReg, goals, banner)
-		if loadSetting(home, wd, "editorMode") == "vim" {
-			bub.SetVim(true)
-		}
-		return bub.Run()
-	}
-	repl := tui.New(eng, cmdReg, goals)
-	repl.Ask = askBridge
-	return repl.Run(ctx)
+		},
+		Vim: loadSetting(home, wd, "editorMode") == "vim",
+	})
+	return fe.Run(ctx)
 }
 
 func oneShot(ctx context.Context, eng *engine.Engine, prompt string) error {
