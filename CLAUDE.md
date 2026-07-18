@@ -40,8 +40,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        dontAsk/plan), deny>allow>mode-default rule precedence, content-match rules, interactive
        asker (y/always/no) wired through the REPL. Gate in `engine.Perms`; `--permission-mode` flag +
        `/permissions` cmd; `/plan` hard-engages plan mode. (Sandbox toggle still TODO.)
-2. [ ] **Async/background Task management** — Task Create/Get/List/Output/Stop, a task registry + scheduler.
-       `src/tasks/`. Upgrades today's synchronous `Task`.
+2. [x] **Async/background Task management** — `internal/task` registry (goroutine per task,
+       status running/completed/failed/stopped, cancellable via ctx) + `TaskCreate/TaskGet/
+       TaskList/TaskOutput/TaskStop` tools. Reuses the SubagentRunner. Complements the synchronous
+       `Task` tool. (Persistent cron/remote task kinds still TODO.)
 3. [ ] **Real TUI** — Bubbletea/lipgloss equivalent of the Ink renderer: spinner, tool-call panels,
        streaming markdown, live todo/goal footer, themes, keybindings, Vim mode. `src/ink/`, `src/vim/`.
 4. [ ] **Rate-limit / billing header display** — ride on the new TUI. `src/services/api/`, cost-tracker.

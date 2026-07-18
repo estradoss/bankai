@@ -19,6 +19,7 @@ import (
 	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
+	"github.com/estradoss/bankai/internal/task"
 	"github.com/estradoss/bankai/internal/tools"
 	"github.com/estradoss/bankai/internal/transcript"
 	"github.com/estradoss/bankai/internal/tui"
@@ -142,7 +143,14 @@ func run(o opts) error {
 	toolReg.Register(tools.WebSearchTool{})
 	toolReg.Register(tools.TodoWriteTool{Store: todos})
 	toolReg.Register(tools.ExitPlanModeTool{})
-	toolReg.Register(tools.AgentTool{Run: engine.SubagentRunner(client, subReg, engine.ClaudeCodePrefix)})
+	subRunner := engine.SubagentRunner(client, subReg, engine.ClaudeCodePrefix)
+	toolReg.Register(tools.AgentTool{Run: subRunner})
+	taskReg := task.NewRegistry(task.Runner(subRunner))
+	toolReg.Register(tools.TaskCreateTool{Reg: taskReg})
+	toolReg.Register(tools.TaskGetTool{Reg: taskReg})
+	toolReg.Register(tools.TaskListTool{Reg: taskReg})
+	toolReg.Register(tools.TaskOutputTool{Reg: taskReg})
+	toolReg.Register(tools.TaskStopTool{Reg: taskReg})
 	toolReg.Register(&tools.CreateGoalTool{Store: goals})
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
 	toolReg.Register(&tools.GetGoalTool{Store: goals})
