@@ -32,8 +32,8 @@ func TestBubbleStreamAppends(t *testing.T) {
 	}
 	m, _ := b.Update(streamMsg("hello world"))
 	b = m.(*Bubble)
-	if !strings.Contains(b.content, "hello world") {
-		t.Fatalf("content missing stream: %q", b.content)
+	if !strings.Contains(b.transcriptText(), "hello world") {
+		t.Fatalf("content missing stream: %q", b.transcriptText())
 	}
 }
 
@@ -68,8 +68,8 @@ func TestBubbleAskModalRoundTrip(t *testing.T) {
 func TestBubbleUnknownCommand(t *testing.T) {
 	b := newTestBubble(t)
 	b.submit("/nope")
-	if !strings.Contains(b.content, "unknown command") {
-		t.Fatalf("expected unknown-command notice: %q", b.content)
+	if !strings.Contains(b.transcriptText(), "unknown command") {
+		t.Fatalf("expected unknown-command notice: %q", b.transcriptText())
 	}
 }
 
@@ -154,5 +154,31 @@ func TestBubbleCtrlCArmsThenExits(t *testing.T) {
 	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Fatal("second ctrl+c should quit")
+	}
+}
+
+func TestBubbleModelPicker(t *testing.T) {
+	b := newTestBubble(t)
+	b.submit("/model")
+	if b.picker == nil {
+		t.Fatal("/model should open a picker")
+	}
+	// Move down and select.
+	m, _ := b.Update(tea.KeyMsg{Type: tea.KeyDown})
+	b = m.(*Bubble)
+	m, _ = b.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	b = m.(*Bubble)
+	if b.picker != nil {
+		t.Fatal("picker should close after enter")
+	}
+	if !strings.Contains(b.transcriptText(), "model set to") {
+		t.Fatalf("model not set: %q", b.transcriptText())
+	}
+}
+
+func TestBubbleMarkdownRenders(t *testing.T) {
+	out := renderMarkdown("# Title\n\n- **bold** item", 60)
+	if out == "" || !strings.Contains(out, "Title") {
+		t.Fatalf("markdown render empty/wrong: %q", out)
 	}
 }

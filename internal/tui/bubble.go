@@ -34,7 +34,9 @@ type Bubble struct {
 	input textinput.Model
 	spin  spinner.Model
 
-	content string // accumulated transcript markdown
+	banner  string  // rendered welcome header (rebuilt on resize)
+	blocks  []block // typed transcript entries
+	curAsst int     // index of the streaming assistant block, or -1
 	busy    bool
 	asking  *askState
 	err     string
@@ -56,6 +58,9 @@ type Bubble struct {
 	// tracks the "press ctrl+c again to exit" idle window.
 	turnCancel context.CancelFunc
 	armed      bool
+
+	// picker, when non-nil, is a modal single-select overlay (/model, /resume).
+	picker *picker
 
 	// Banner metadata for the welcome header.
 	version, user, cwd, effort string
@@ -152,17 +157,25 @@ func NewBubbleWithBanner(ctx context.Context, e *engine.Engine, c *commands.Regi
 	sp.Spinner = spinner.Dot
 
 	b := &Bubble{engine: e, cmds: c, goals: g, ctx: ctx, input: ti, spin: sp,
+		curAsst: -1,
 		version: info.Version, user: info.User, cwd: info.Cwd, effort: info.Effort}
-	// content (banner) is seeded on the first WindowSizeMsg, once width is known
-	// so the header box borders align to the terminal.
+	// banner is seeded on the first WindowSizeMsg, once width is known so the
+	// header box borders align to the terminal.
 	return b
+}
+
+// pushBlock appends a finalized transcript block and ends any streaming.
+func (b *Bubble) pushBlock(k blockKind, text string) {
+	b.curAsst = -1
+	b.blocks = append(b.blocks, block{kind: k, text: text})
+	b.refresh()
 }
 
 // mascot is a small ascii critter for the welcome banner.
 const mascot = "  ╭─────╮\n  │ ● ● │\n  ╰──┬──╯\n   bankai"
 
 // banner renders the welcome header shown at the top of the scrollback.
-func (b *Bubble) banner() string {
+func (b *Bubble) renderBanner() string {
 	title := "bankai"
 	if b.version != "" {
 		title += " v" + b.version
@@ -248,8 +261,9 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !b.ready {
 			b.vp = viewport.New(msg.Width, vpHeight)
 			b.ready = true
-			b.content = b.banner() // seed banner now that width is known
+			b.banner = b.renderBanner() // seed banner now that width is known
 		} else {
+			b.banner = b.renderBanner() // re-wrap banner to new width
 			b.vp.Width = msg.Width
 			b.vp.Height = vpHeight
 		}
@@ -257,6 +271,13 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.refresh()
 
 	case tea.KeyMsg:
+		if b.picker != nil {
+			cmd, done := b.picker.handleKey(msg)
+			if done {
+				b.picker = nil
+			}
+			return b, cmd
+		}
 		if b.asking != nil {
 			return b, b.handleAsk(msg)
 		}
@@ -295,8 +316,7 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ctrl+c arms and the second quits.
 			if b.busy && b.turnCancel != nil {
 				b.turnCancel()
-				b.content += errStyle.Render("⎯ interrupted") + "\n"
-				b.refresh()
+				b.pushBlock(blockNotice, "⎯ interrupted")
 				return b, nil
 			}
 			if b.armed {
@@ -323,24 +343,28 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case streamMsg:
-		b.content += string(msg)
+		// Append streamed text to the current assistant block, creating one on
+		// the first chunk of a turn.
+		if b.curAsst < 0 {
+			b.blocks = append(b.blocks, block{kind: blockAssistant})
+			b.curAsst = len(b.blocks) - 1
+		}
+		b.blocks[b.curAsst].text += string(msg)
 		b.refresh()
 
 	case toolMsg:
-		// Tool-call panel: a left-bordered, colored block showing the call.
-		panel := toolBox.Render(fmt.Sprintf("⚙ %s %s", msg.name, msg.input))
-		b.content += panel + "\n"
-		b.refresh()
+		// A tool call ends the current assistant block and starts a panel.
+		b.pushBlock(blockTool, prettyToolLine(msg.name, msg.input))
 
 	case doneMsg:
 		b.busy = false
 		b.turnCancel = nil
+		b.curAsst = -1
 		if msg.err != nil && !strings.Contains(msg.err.Error(), "context canceled") {
 			b.err = msg.err.Error()
 		} else {
 			b.err = ""
 		}
-		b.content += "\n"
 		b.refresh()
 
 	case askMsg:
@@ -434,12 +458,21 @@ func (b *Bubble) renderSuggestions() string {
 // submit handles a line: either a slash command or a model turn.
 func (b *Bubble) submit(line string) tea.Cmd {
 	b.err = ""
+	// Interactive pickers: /model and /resume with no args open an in-TUI
+	// selector instead of running the command.
+	if line == "/model" {
+		b.openModelPicker()
+		return nil
+	}
+	if line == "/resume" {
+		b.openSessionPicker()
+		return nil
+	}
 	if name, args, ok := commands.Parse(line); ok {
 		cmd, found := b.cmds.Get(name)
 		if !found {
 			b.appendUser(line)
-			b.content += errStyle.Render("unknown command: /"+name) + "\n"
-			b.refresh()
+			b.pushBlock(blockNotice, "unknown command: /"+name)
 			return nil
 		}
 		res, err := cmd.Run(commands.Context{Ctx: b.ctx, Engine: b.engine, Goals: b.goals}, args)
@@ -452,8 +485,7 @@ func (b *Bubble) submit(line string) tea.Cmd {
 			return tea.Quit
 		}
 		if res.Text != "" {
-			b.content += res.Text + "\n"
-			b.refresh()
+			b.pushBlock(blockNotice, res.Text)
 		}
 		if res.Submit == "" {
 			return nil
@@ -569,15 +601,24 @@ func (b *Bubble) handleAsk(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (b *Bubble) appendUser(line string) {
-	b.content += userStyle.Render("› "+line) + "\n"
-	b.refresh()
+	b.pushBlock(blockUser, line)
+}
+
+// transcriptText returns the raw (unrendered) text of all blocks, for tests.
+func (b *Bubble) transcriptText() string {
+	var sb strings.Builder
+	for _, bl := range b.blocks {
+		sb.WriteString(bl.text)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
 }
 
 func (b *Bubble) refresh() {
 	if !b.ready {
 		return
 	}
-	b.vp.SetContent(b.content)
+	b.vp.SetContent(renderBlocks(b.banner, b.blocks, b.width))
 	b.vp.GotoBottom()
 }
 
@@ -586,7 +627,9 @@ func (b *Bubble) View() string {
 		return "loading…"
 	}
 	var bottom string
-	if b.asking != nil {
+	if b.picker != nil {
+		bottom = b.picker.view(b.width)
+	} else if b.asking != nil {
 		in := string(b.asking.req.Input)
 		if len(in) > 120 {
 			in = in[:117] + "…"

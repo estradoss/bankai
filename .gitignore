@@ -4,3 +4,4 @@ _vibelearn/
 .DS_Store
 .env
 .env.local
+_crush/
