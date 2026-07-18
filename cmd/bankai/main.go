@@ -465,6 +465,7 @@ func run(o opts) error {
 	cmdReg.Register(commands.Clear{})
 	cmdReg.Register(commands.Exit{})
 	cmdReg.Register(commands.Model{})
+	cmdReg.Register(commands.Resume{})
 	cmdReg.Register(commands.Dump{})
 	cmdReg.Register(commands.GoalCmd{})
 	cmdReg.Register(commands.Compact{})
