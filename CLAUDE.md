@@ -48,8 +48,11 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        status running/completed/failed/stopped, cancellable via ctx) + `TaskCreate/TaskGet/
        TaskList/TaskOutput/TaskStop` tools. Reuses the SubagentRunner. Complements the synchronous
        `Task` tool. (Persistent cron/remote task kinds still TODO.)
-3. [ ] **Real TUI** — Bubbletea/lipgloss equivalent of the Ink renderer: spinner, tool-call panels,
-       streaming markdown, live todo/goal footer, themes, keybindings, Vim mode. `src/ink/`, `src/vim/`.
+3. [~] **Real TUI** — `internal/tui/bubble.go`: Bubbletea/lipgloss TUI (alt-screen viewport
+       scrollback, textinput prompt, thinking spinner, model/perms/goal footer, modal permission
+       prompt). Opt-in via `--tui`; line REPL stays the default fallback. Engine runs in a tea.Cmd
+       goroutine, streams via p.Send, asker round-trips through a channel. (Tool-call panels,
+       themes, Vim mode still TODO.) NOTE: go.mod bumped to 1.24 for bubbletea (per user decision).
 4. [~] **Rate-limit / billing header display** — `provider.RateLimit` captures anthropic-ratelimit-*
        (requests/tokens/unified + retry-after) headers off every response; `/limits` command prints
        them. (Live TUI header widget still TODO — rides on the future TUI.)
@@ -77,5 +80,5 @@ See `_vibelearn/learnvibe/FEATURES.md` for the complete flag/subsystem inventory
 ## Notes
 - `_vibelearn/learnvibe` is reference source only — not wired into the Go build.
 - Keep Claude Code JSONL interop compatible when adding features (sessions hand off to real `claude`).
-- Build: `make build` (dist/bankai), `make install`, `make test`. Go 1.22+.
+- Build: `make build` (dist/bankai), `make install`, `make test`. Go 1.24+ (bumped from 1.22 for bubbletea).
 - Debug: `BANKAI_DEBUG=1` dumps raw HTTP. Model: `BANKAI_MODEL` env / `--model` / `/model`.

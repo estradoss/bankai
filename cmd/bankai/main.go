@@ -37,6 +37,7 @@ type opts struct {
 	model     string
 	permMode  string
 	sandbox   bool
+	tui       bool
 	help      bool
 	ver       bool
 }
@@ -54,6 +55,7 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.model, "model", "", "override BANKAI_MODEL for this run")
 	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
 	fs.BoolVar(&o.sandbox, "sandbox", false, "run Bash commands in an OS sandbox (no network, ro fs except cwd/tmp)")
+	fs.BoolVar(&o.tui, "tui", false, "use the rich Bubbletea TUI instead of the line REPL")
 	fs.BoolVar(&o.help, "h", false, "help")
 	fs.BoolVar(&o.help, "help", false, "help")
 	fs.BoolVar(&o.ver, "v", false, "version")
@@ -267,6 +269,9 @@ func run(o opts) error {
 	fmt.Fprintf(os.Stderr, "bankai %s — auth=%s session=%s (%s)\n",
 		version, cfg.Source, tw.SessionID, tw.Path)
 
+	if o.tui {
+		return tui.NewBubble(ctx, eng, cmdReg, goals).Run()
+	}
 	repl := tui.New(eng, cmdReg, goals)
 	return repl.Run(ctx)
 }
@@ -326,6 +331,7 @@ Usage:
   bankai -p "<prompt>"          one-shot; print reply and exit
   bankai "<prompt words>"       same as -p
   bankai --model <name>         override model for this run
+  bankai --tui                  rich Bubbletea TUI (default is the line REPL)
 
 Interop:
   Sessions live at ~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl —
