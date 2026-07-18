@@ -100,6 +100,12 @@ func (r *REPL) Run(ctx context.Context) error {
 
 		fmt.Fprintf(r.Out, "%s", ansiDim)
 		if err := r.Engine.Submit(ctx, line); err != nil {
+			// ctrl+c cancels the shared context; don't spin forever on a dead
+			// ctx — surface it once and exit cleanly.
+			if ctx.Err() != nil {
+				fmt.Fprintf(r.Out, "%s\n%sinterrupted%s\n", ansiReset, ansiDim, ansiReset)
+				return nil
+			}
 			fmt.Fprintf(r.Out, "%s\n%serror: %v%s\n", ansiReset, ansiRed, err, ansiReset)
 			continue
 		}

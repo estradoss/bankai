@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -557,8 +558,17 @@ func run(o opts) error {
 		return http.ListenAndServe(addr, mux)
 	}
 
-	if o.tui && feats.Enabled("TUI") {
-		bub := tui.NewBubble(ctx, eng, cmdReg, goals)
+	// Rich Bubbletea TUI is the default on an interactive terminal; the line
+	// REPL is the fallback for pipes/non-TTY, or when forced via BANKAI_NO_TUI.
+	useTUI := feats.Enabled("TUI") && (o.tui || (isTTY() && os.Getenv("BANKAI_NO_TUI") == ""))
+	if useTUI {
+		banner := tui.BannerInfo{
+			Version: version,
+			User:    currentUser(),
+			Cwd:     wd,
+			Effort:  loadSetting(home, wd, "effort"),
+		}
+		bub := tui.NewBubbleWithBanner(ctx, eng, cmdReg, goals, banner)
 		if loadSetting(home, wd, "editorMode") == "vim" {
 			bub.SetVim(true)
 		}
@@ -600,6 +610,25 @@ func oneShot(ctx context.Context, eng *engine.Engine, prompt string) error {
 	}
 	fmt.Println()
 	return nil
+}
+
+// isTTY reports whether stdout is an interactive terminal.
+func isTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// currentUser returns a friendly user name for the welcome banner.
+func currentUser() string {
+	if u, err := user.Current(); err == nil {
+		if u.Username != "" {
+			return u.Username
+		}
+	}
+	return os.Getenv("USER")
 }
 
 func signalCtx() (context.Context, context.CancelFunc) {
