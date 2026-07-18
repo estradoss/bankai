@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -104,22 +105,52 @@ func renderBlocks(banner string, blocks []block, width int) string {
 
 // prettyToolLine formats a tool call for its panel: NAME  <compact args>.
 func prettyToolLine(name, input string) string {
+	arg := toolArgSummary(name, input)
+	if len(arg) > 120 {
+		arg = arg[:119] + "…"
+	}
+	head := lipgloss.NewStyle().Bold(true).Render("⚙ " + name)
+	if arg == "" {
+		return head
+	}
+	return head + "  " + arg
+}
+
+// toolArgSummary extracts a one-line, human-readable argument summary from a
+// tool's raw JSON input — the command for Bash, the path for file tools, the
+// pattern for search tools, etc. Falls back to compacted JSON.
+func toolArgSummary(name, input string) string {
 	input = strings.TrimSpace(input)
-	// Pull a bash command out of {"command":"..."} so it reads as a command,
-	// not JSON.
-	if strings.HasPrefix(input, "{") && strings.Contains(input, "\"command\"") {
-		if i := strings.Index(input, "\"command\""); i >= 0 {
-			rest := input[i+len("\"command\""):]
-			if j := strings.Index(rest, "\""); j >= 0 {
-				rest = rest[j+1:]
-				if k := strings.Index(rest, "\""); k >= 0 {
-					return lipgloss.NewStyle().Bold(true).Render("⚙ "+name) + "  " + rest[:k]
-				}
+	var m map[string]any
+	if json.Unmarshal([]byte(input), &m) != nil {
+		return input
+	}
+	str := func(k string) string {
+		if v, ok := m[k].(string); ok {
+			return strings.TrimSpace(v)
+		}
+		return ""
+	}
+	// Preferred field per tool, in priority order.
+	for _, k := range []string{"command", "file_path", "pattern", "path", "url", "query", "description", "prompt", "notebook_path"} {
+		if v := str(k); v != "" {
+			// Grep/Glob read nicer as `pattern  in path`.
+			if (k == "pattern") && str("path") != "" {
+				return v + "  in " + str("path")
 			}
+			return firstLine(v)
 		}
 	}
-	if len(input) > 120 {
-		input = input[:117] + "…"
+	// Unknown shape: compact the JSON onto one line.
+	if b, err := json.Marshal(m); err == nil {
+		return string(b)
 	}
-	return lipgloss.NewStyle().Bold(true).Render("⚙ "+name) + "  " + input
+	return input
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i] + " …"
+	}
+	return s
 }

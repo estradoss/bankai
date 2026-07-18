@@ -38,6 +38,7 @@ type Bubble struct {
 	blocks  []block // typed transcript entries
 	curAsst int     // index of the streaming assistant block, or -1
 	busy    bool
+	curTool string  // name of the tool currently running, or "" (footer status)
 	asking  *askState
 	err     string
 
@@ -231,11 +232,9 @@ func (b *Bubble) Run() error {
 
 	b.engine.OnText = func(chunk string) { p.Send(streamMsg(chunk)) }
 	b.engine.OnToolStart = func(name string, input json.RawMessage) {
-		in := string(input)
-		if len(in) > 160 {
-			in = in[:157] + "..."
-		}
-		p.Send(toolMsg{name: name, input: in})
+		// Pass the full raw JSON; prettyToolLine extracts + truncates a
+		// human-readable summary (truncating here would corrupt the JSON).
+		p.Send(toolMsg{name: name, input: string(input)})
 	}
 	if b.engine.Perms != nil {
 		b.engine.Perms.Asker = func(req permission.Request) permission.Decision {
@@ -350,14 +349,17 @@ func (b *Bubble) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.curAsst = len(b.blocks) - 1
 		}
 		b.blocks[b.curAsst].text += string(msg)
+		b.curTool = "" // model resumed emitting text → prior tool finished
 		b.refresh()
 
 	case toolMsg:
 		// A tool call ends the current assistant block and starts a panel.
+		b.curTool = msg.name
 		b.pushBlock(blockTool, prettyToolLine(msg.name, msg.input))
 
 	case doneMsg:
 		b.busy = false
+		b.curTool = ""
 		b.turnCancel = nil
 		b.curAsst = -1
 		if msg.err != nil && !strings.Contains(msg.err.Error(), "context canceled") {
@@ -692,7 +694,11 @@ func (b *Bubble) footer() string {
 	}
 	status := "ready"
 	if b.busy {
-		status = b.spin.View() + "thinking… (ctrl+c to interrupt)"
+		what := "thinking…"
+		if b.curTool != "" {
+			what = "running " + b.curTool + "…"
+		}
+		status = b.spin.View() + what + " (ctrl+c to interrupt)"
 	}
 	seg = append(seg, status)
 	line1 := footerStyle.Render(strings.Join(seg, "  ·  "))
