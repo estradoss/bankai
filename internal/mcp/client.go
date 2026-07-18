@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -229,6 +230,64 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 		b = append(b, blk.Text...)
 	}
 	return string(b), res.IsError, nil
+}
+
+// ResourceInfo describes a resource advertised by an MCP server.
+type ResourceInfo struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MIMEType    string `json:"mimeType"`
+}
+
+// ListResources returns the server's advertised resources. A server without
+// resource support may return an error; callers treat that as "none".
+func (c *Client) ListResources(ctx context.Context) ([]ResourceInfo, error) {
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	raw, err := c.call(cctx, "resources/list", map[string]interface{}{})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Resources []ResourceInfo `json:"resources"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out.Resources, nil
+}
+
+// ReadResource reads a resource by URI, returning the concatenated text of its
+// content blocks.
+func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	raw, err := c.call(cctx, "resources/read", map[string]interface{}{"uri": uri})
+	if err != nil {
+		return "", err
+	}
+	var res struct {
+		Contents []struct {
+			Text string `json:"text"`
+			Blob string `json:"blob"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return string(raw), nil
+	}
+	var b strings.Builder
+	for i, ct := range res.Contents {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if ct.Text != "" {
+			b.WriteString(ct.Text)
+		} else if ct.Blob != "" {
+			b.WriteString("(binary blob, " + fmt.Sprint(len(ct.Blob)) + " base64 bytes)")
+		}
+	}
+	return b.String(), nil
 }
 
 // Close terminates the server process.

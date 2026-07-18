@@ -199,6 +199,10 @@ func run(o opts) error {
 		mgr, bridged, errs := mcp.Start(context.Background(), mcpConfigs)
 		mcpMgr = mgr
 		tools.RegisterMCPTools(toolReg, bridged)
+		if len(mgr.Resources()) > 0 {
+			toolReg.Register(tools.ListMcpResourcesTool{Mgr: mgr})
+			toolReg.Register(tools.ReadMcpResourceTool{Mgr: mgr})
+		}
 		if len(bridged) > 0 {
 			fmt.Fprintf(os.Stderr, "mcp: %d tool(s) from %d server(s)\n", len(bridged), len(mcpConfigs)-len(errs))
 		}

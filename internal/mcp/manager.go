@@ -50,7 +50,29 @@ func LoadConfigs(homeDir, projectDir string) map[string]ServerConfig {
 
 // Manager owns the live MCP client connections.
 type Manager struct {
-	clients []*Client
+	clients   []*Client
+	resources []BridgedResource
+}
+
+// BridgedResource is a resource advertised by a connected server.
+type BridgedResource struct {
+	Server string
+	Info   ResourceInfo
+	client *Client
+}
+
+// Resources returns all resources advertised by connected servers.
+func (m *Manager) Resources() []BridgedResource { return m.resources }
+
+// ReadResource reads a resource by URI from whichever server advertised it.
+func (m *Manager) ReadResource(ctx context.Context, uri string) (string, bool, error) {
+	for _, r := range m.resources {
+		if r.Info.URI == uri {
+			out, err := r.client.ReadResource(ctx, uri)
+			return out, true, err
+		}
+	}
+	return "", false, nil
 }
 
 // BridgedTool is a single MCP tool exposed for the agent to call.
@@ -97,6 +119,12 @@ func Start(ctx context.Context, configs map[string]ServerConfig) (*Manager, []Br
 			continue
 		}
 		m.clients = append(m.clients, c)
+		// Resources are optional; a server without support just errors here.
+		if res, rerr := c.ListResources(ctx); rerr == nil {
+			for _, ri := range res {
+				m.resources = append(m.resources, BridgedResource{Server: name, Info: ri, client: c})
+			}
+		}
 		for _, info := range infos {
 			tools = append(tools, BridgedTool{
 				Server:        name,

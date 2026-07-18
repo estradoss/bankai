@@ -59,7 +59,9 @@ Rough dependency order (do top-down; later items lean on earlier infra).
 5. [~] **MCP client** — `internal/mcp`: stdio JSON-RPC 2.0 client (initialize handshake, tools/list,
        tools/call), config loader (mcpServers from user+project settings.json), Manager that dials
        all servers non-fatally and bridges tools as `mcp__<server>__<tool>` (`tools.MCPTool`).
-       `/mcp` lists them. (SSE/HTTP transports, OAuth/xaa, resources still TODO.)
+       `/mcp` lists them. Resources: `resources/list`+`resources/read` with `ListMcpResources`/
+       `ReadMcpResource` tools (registered when any server exposes resources). (SSE/HTTP transports,
+       OAuth/xaa still TODO.)
 6. [~] **LSP client** — `internal/lsp`: Content-Length-framed JSON-RPC client (initialize, didOpen,
        publishDiagnostics registry), Manager routing by file extension with lazy server start,
        config from settings.json lspServers + built-in gopls default, `lsp_diagnostics` tool.

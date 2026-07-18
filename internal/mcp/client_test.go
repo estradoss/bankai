@@ -45,6 +45,14 @@ func runMockServer() {
 			result = map[string]interface{}{"tools": []map[string]interface{}{
 				{"name": "echo", "description": "echoes text", "inputSchema": map[string]interface{}{"type": "object"}},
 			}}
+		case "resources/list":
+			result = map[string]interface{}{"resources": []map[string]interface{}{
+				{"uri": "mem://note", "name": "note", "description": "a note", "mimeType": "text/plain"},
+			}}
+		case "resources/read":
+			result = map[string]interface{}{"contents": []map[string]interface{}{
+				{"text": "resource body"},
+			}}
 		case "tools/call":
 			var p struct {
 				Name      string                 `json:"name"`
@@ -95,6 +103,36 @@ func TestCallTool(t *testing.T) {
 	}
 	if out != "echo:hi" {
 		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestResources(t *testing.T) {
+	c := dialMock(t)
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := c.ListResources(ctx)
+	if err != nil || len(res) != 1 || res[0].URI != "mem://note" {
+		t.Fatalf("resources = %+v err=%v", res, err)
+	}
+	body, err := c.ReadResource(ctx, "mem://note")
+	if err != nil || body != "resource body" {
+		t.Fatalf("read = %q err=%v", body, err)
+	}
+}
+
+func TestManagerResources(t *testing.T) {
+	cfgs := map[string]ServerConfig{
+		"mock": {Command: os.Args[0], Env: map[string]string{"BANKAI_MCP_HELPER": "1"}},
+	}
+	mgr, _, _ := Start(context.Background(), cfgs)
+	defer mgr.Close()
+	if len(mgr.Resources()) != 1 {
+		t.Fatalf("manager resources = %+v", mgr.Resources())
+	}
+	body, found, err := mgr.ReadResource(context.Background(), "mem://note")
+	if !found || err != nil || body != "resource body" {
+		t.Fatalf("read: %q found=%v err=%v", body, found, err)
 	}
 }
 
