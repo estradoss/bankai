@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -126,10 +127,39 @@ func (b *Bubble) openSessionPicker() {
 		title: "Resume session",
 		items: sessions,
 		onSelect: func(v string) tea.Cmd {
-			b.pushBlock(blockNotice, "To resume this session, restart with:  bankai --resume "+v)
+			if err := b.resumeSession(v); err != nil {
+				b.pushBlock(blockNotice, "resume failed: "+err.Error())
+			}
 			return nil
 		},
 	}
+}
+
+// resumeSession loads a prior session's transcript into the live engine and
+// re-points the writer at the same file so further turns continue that session.
+func (b *Bubble) resumeSession(id string) error {
+	p, err := transcript.FindSession(b.cwd, id)
+	if err != nil {
+		return err
+	}
+	res, err := transcript.Load(p)
+	if err != nil {
+		return err
+	}
+	b.engine.Messages = res.Messages
+	if tw, err := transcript.New(b.cwd, id); err == nil {
+		tw.SetParent(res.LastUUID)
+		b.engine.Transcript = tw
+	}
+	b.blocks = nil
+	b.curAsst = -1
+	label := id
+	if len(label) > 8 {
+		label = label[:8]
+	}
+	b.pushBlock(blockNotice, fmt.Sprintf("resumed session %s — %d messages loaded", label, len(res.Messages)))
+	b.refresh()
+	return nil
 }
 
 // listRecentSessions returns up to `limit` sessions for cwd's project, newest
@@ -164,7 +194,18 @@ func listRecentSessions(cwd string, limit int) []pickerItem {
 	}
 	out := make([]pickerItem, 0, len(ss))
 	for _, s := range ss {
-		out = append(out, pickerItem{label: s.id, desc: humanAge(s.mod), value: s.id})
+		label := transcript.FirstPrompt(filepath.Join(dir, s.id+".jsonl"))
+		if label == "" {
+			label = s.id
+		}
+		if len(label) > 60 {
+			label = label[:59] + "…"
+		}
+		short := s.id
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		out = append(out, pickerItem{label: label, desc: short + " · " + humanAge(s.mod), value: s.id})
 	}
 	return out
 }

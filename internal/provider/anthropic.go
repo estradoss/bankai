@@ -266,8 +266,16 @@ func buildPrompt(system string, msgs []agent.Message) fantasy.Prompt {
 			for _, b := range m.Content {
 				switch b.Type {
 				case "text":
+					// Anthropic rejects empty text blocks (common in replayed
+					// transcripts: an assistant turn that was pure tool_use).
+					if strings.TrimSpace(b.Text) == "" {
+						continue
+					}
 					parts = append(parts, fantasy.TextPart{Text: b.Text})
 				case "thinking":
+					if strings.TrimSpace(b.Text) == "" {
+						continue
+					}
 					parts = append(parts, fantasy.ReasoningPart{Text: b.Text})
 				case "tool_use":
 					parts = append(parts, fantasy.ToolCallPart{
@@ -296,14 +304,19 @@ func buildPrompt(system string, msgs []agent.Message) fantasy.Prompt {
 						Output:     out,
 					})
 				default: // text
+					if strings.TrimSpace(b.Text) == "" {
+						continue
+					}
 					userParts = append(userParts, fantasy.TextPart{Text: b.Text})
 				}
 			}
-			if len(userParts) > 0 {
-				prompt = append(prompt, fantasy.Message{Role: fantasy.MessageRoleUser, Content: userParts})
-			}
+			// Tool results must come first so they immediately follow the
+			// assistant's tool_use; any accompanying user text goes after.
 			if len(toolParts) > 0 {
 				prompt = append(prompt, fantasy.Message{Role: fantasy.MessageRoleTool, Content: toolParts})
+			}
+			if len(userParts) > 0 {
+				prompt = append(prompt, fantasy.Message{Role: fantasy.MessageRoleUser, Content: userParts})
 			}
 		}
 	}
