@@ -36,8 +36,10 @@ Priority order. Each maps to TS source under `_vibelearn/learnvibe/src`.
 Nothing is deferred. Everything below is planned work toward feature parity with vibelearn.
 Rough dependency order (do top-down; later items lean on earlier infra).
 
-1. [ ] **Permission gate + sandbox toggle** — gate every tool call (ask/allow/deny), enforce plan mode.
-       Foundation for everything else. `src/services/permissions*`, sandbox toggle.
+1. [x] **Permission gate** — `internal/permission`. Modes (default/acceptEdits/bypassPermissions/
+       dontAsk/plan), deny>allow>mode-default rule precedence, content-match rules, interactive
+       asker (y/always/no) wired through the REPL. Gate in `engine.Perms`; `--permission-mode` flag +
+       `/permissions` cmd; `/plan` hard-engages plan mode. (Sandbox toggle still TODO.)
 2. [ ] **Async/background Task management** — Task Create/Get/List/Output/Stop, a task registry + scheduler.
        `src/tasks/`. Upgrades today's synchronous `Task`.
 3. [ ] **Real TUI** — Bubbletea/lipgloss equivalent of the Ink renderer: spinner, tool-call panels,

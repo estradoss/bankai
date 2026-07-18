@@ -4,8 +4,33 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/tools"
 )
+
+// Permissions shows or switches the permission mode at runtime.
+type Permissions struct{}
+
+func (Permissions) Name() string { return "permissions" }
+func (Permissions) Description() string {
+	return "Show or set permission mode (usage: /permissions [default|acceptEdits|bypassPermissions|dontAsk|plan])"
+}
+func (Permissions) Run(ctx Context, args string) (Result, error) {
+	g := ctx.Engine.Perms
+	if g == nil {
+		return Result{Text: "permission gating is not enabled for this session"}, nil
+	}
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return Result{Text: fmt.Sprintf("permission mode: %s\nmodes: default | acceptEdits | bypassPermissions | dontAsk | plan", g.Mode())}, nil
+	}
+	m := permission.Mode(args)
+	if !m.Valid() {
+		return Result{Text: fmt.Sprintf("unknown mode %q (default|acceptEdits|bypassPermissions|dontAsk|plan)", args)}, nil
+	}
+	g.SetMode(m)
+	return Result{Text: "permission mode → " + args}, nil
+}
 
 // Compact summarizes the conversation to reclaim context.
 type Compact struct{}
@@ -107,6 +132,11 @@ func (Plan) Run(ctx Context, args string) (Result, error) {
 	task := strings.TrimSpace(args)
 	if task == "" {
 		return Result{Text: "usage: /plan <what to build>"}, nil
+	}
+	// Engage plan mode on the gate so edits/writes are hard-denied, not just
+	// discouraged by the prompt. Cleared with /permissions default after approval.
+	if ctx.Engine.Perms != nil {
+		ctx.Engine.Perms.SetMode(permission.ModePlan)
 	}
 	return Result{Submit: "You are in PLAN MODE. Research the codebase using read-only tools (Read, Glob, Grep, Bash for inspection only — no edits, no writes). Do NOT modify any files. When you have a concrete implementation plan, call the ExitPlanMode tool with the plan as markdown for my approval.\n\nTask: " + task}, nil
 }

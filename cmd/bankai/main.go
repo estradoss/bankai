@@ -16,6 +16,7 @@ import (
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
+	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
 	"github.com/estradoss/bankai/internal/tools"
@@ -32,6 +33,7 @@ type opts struct {
 	resume    string
 	sessionID string
 	model     string
+	permMode  string
 	help      bool
 	ver       bool
 }
@@ -47,6 +49,7 @@ func parseArgs(args []string) (opts, error) {
 	fs.StringVar(&o.resume, "resume", "", "resume a specific session by uuid")
 	fs.StringVar(&o.sessionID, "session-id", "", "start a new session with this uuid (interop with claude --session-id)")
 	fs.StringVar(&o.model, "model", "", "override BANKAI_MODEL for this run")
+	fs.StringVar(&o.permMode, "permission-mode", "", "permission mode: default|acceptEdits|bypassPermissions|dontAsk|plan")
 	fs.BoolVar(&o.help, "h", false, "help")
 	fs.BoolVar(&o.help, "help", false, "help")
 	fs.BoolVar(&o.ver, "v", false, "version")
@@ -146,6 +149,22 @@ func run(o opts) error {
 
 	eng := engine.New(client, toolReg, goals)
 
+	// Permission gate. Default mode asks before mutating/exec tools. In
+	// one-shot (-p) mode there is no interactive prompt, so unless the user
+	// picks an explicit non-asking mode we bypass to keep scripted runs usable.
+	mode := permission.Mode(o.permMode)
+	if o.permMode == "" {
+		if o.printMode {
+			mode = permission.ModeBypass
+		} else {
+			mode = permission.ModeDefault
+		}
+	}
+	if !mode.Valid() {
+		return fmt.Errorf("invalid --permission-mode %q", o.permMode)
+	}
+	eng.Perms = permission.New(mode, nil, nil)
+
 	cwd, _ := os.Getwd()
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = resolved
@@ -207,6 +226,7 @@ func run(o opts) error {
 	cmdReg.Register(commands.ContextCmd{})
 	cmdReg.Register(commands.Todos{Store: todos})
 	cmdReg.Register(commands.Plan{})
+	cmdReg.Register(commands.Permissions{})
 	cmdReg.Register(commands.Init{})
 	cmdReg.Register(commands.Commit{})
 	cmdReg.Register(commands.Review{})
@@ -298,5 +318,10 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /init /commit /review /doctor /exit`)
+  /todos /plan /permissions /init /commit /review /doctor /exit
+
+Permissions:
+  --permission-mode <m>     default|acceptEdits|bypassPermissions|dontAsk|plan
+                            (interactive defaults to 'default'; -p defaults to bypass)
+  /permissions [mode]       show or switch mode at runtime`)
 }

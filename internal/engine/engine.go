@@ -8,6 +8,7 @@ import (
 
 	"github.com/estradoss/bankai/internal/agent"
 	"github.com/estradoss/bankai/internal/goal"
+	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/tools"
 	"github.com/estradoss/bankai/internal/transcript"
@@ -22,6 +23,7 @@ type Engine struct {
 	System     string
 	OnText     func(string)
 	Transcript *transcript.Writer // optional; nil = don't record
+	Perms      *permission.Gate   // optional; nil = allow all (no gating)
 	// TotalUsage accumulates token usage across every model turn this session.
 	TotalUsage agent.Usage
 	// Turns counts model turns (round-trips) this session.
@@ -138,7 +140,16 @@ func (e *Engine) runLoop(ctx context.Context) error {
 			if blk.Type != "tool_use" {
 				continue
 			}
-			out := e.Tools.Execute(ctx, blk.Name, blk.Input)
+			var out tools.Result
+			if e.Perms != nil {
+				if ok, reason := e.Perms.Check(blk.Name, blk.Input); !ok {
+					out = tools.Result{Output: reason, IsError: true}
+				} else {
+					out = e.Tools.Execute(ctx, blk.Name, blk.Input)
+				}
+			} else {
+				out = e.Tools.Execute(ctx, blk.Name, blk.Input)
+			}
 			results = append(results, agent.ContentBlock{
 				Type:      "tool_result",
 				ToolUseID: blk.ID,

@@ -11,6 +11,7 @@ import (
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/engine"
 	"github.com/estradoss/bankai/internal/goal"
+	"github.com/estradoss/bankai/internal/permission"
 )
 
 const (
@@ -41,20 +42,28 @@ func (r *REPL) Run(ctx context.Context) error {
 	fmt.Fprintf(r.Out, "%sbankai%s — model=%s. type /help for commands, /exit to quit.\n",
 		ansiBold, ansiReset, r.Engine.Client.Model)
 
-	scan := bufio.NewScanner(r.In)
-	scan.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	reader := bufio.NewReader(r.In)
+	// A shared reader lets the permission asker read a y/n line from the same
+	// stdin the REPL uses for prompts, without a second competing buffer.
+	if r.Engine.Perms != nil {
+		r.Engine.Perms.Asker = r.makeAsker(reader)
+	}
 
 	for {
 		r.printPrompt()
-		if !scan.Scan() {
-			if err := scan.Err(); err != nil {
-				return err
+		raw, err := reader.ReadString('\n')
+		if err != nil {
+			if raw == "" {
+				fmt.Fprintln(r.Out)
+				return nil
 			}
-			fmt.Fprintln(r.Out)
-			return nil
 		}
-		line := strings.TrimSpace(scan.Text())
+		line := strings.TrimSpace(raw)
 		if line == "" {
+			if err != nil {
+				fmt.Fprintln(r.Out)
+				return nil
+			}
 			continue
 		}
 
@@ -88,6 +97,28 @@ func (r *REPL) Run(ctx context.Context) error {
 			continue
 		}
 		fmt.Fprintf(r.Out, "%s\n", ansiReset)
+	}
+}
+
+// makeAsker returns a permission.Asker that prompts on the terminal, reading
+// its answer from the shared REPL reader. y=allow once, a=allow always, n/other=deny.
+func (r *REPL) makeAsker(reader *bufio.Reader) permission.Asker {
+	return func(req permission.Request) permission.Decision {
+		in := string(req.Input)
+		if len(in) > 200 {
+			in = in[:197] + "..."
+		}
+		fmt.Fprintf(r.Out, "\n%s permission%s %s%s%s wants to run:\n  %s%s%s\n%sallow? [y]es once / [a]lways / [N]o:%s ",
+			ansiBold, ansiReset, ansiCyan, req.Tool, ansiReset, ansiDim, in, ansiReset, ansiGreen, ansiReset)
+		ans, _ := reader.ReadString('\n')
+		switch strings.ToLower(strings.TrimSpace(ans)) {
+		case "y", "yes":
+			return permission.DecideAllowOnce
+		case "a", "always":
+			return permission.DecideAllowAlways
+		default:
+			return permission.DecideDeny
+		}
 	}
 }
 
