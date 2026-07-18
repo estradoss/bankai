@@ -1,5 +1,15 @@
 # PLAN — migrate bankai's LLM layer to `charm.land/fantasy`
 
+> **STATUS: DONE.** `internal/provider/anthropic.go` is now a thin fantasy
+> adapter (build `fanthropic` provider from `AuthSource`, convert
+> `[]agent.Message`↔`fantasy.Prompt`, stream, map parts→`StreamResult`). The
+> hand-rolled SSE parser + Codex/OpenAI backend are deleted (`internal/codex`,
+> `internal/provider/openai.go`). Engine loop kept as-is (lowest blast radius) —
+> it still calls `Client.Stream(StreamRequest)`, unchanged signature. go.mod at
+> 1.26.5, `GOTOOLCHAIN=auto` in Makefile. Net −~600 LOC. Verified: `go build`/
+> `go test` green + live OAuth session with Bash tool round-trip. Rate-limit
+> headers preserved via a capturing `http.RoundTripper` on the fantasy client.
+
 Goal: make bankai **leaner** by delegating the LLM transport + tool-use loop to
 fantasy (Charm's LLM/agent library, the engine behind crush), while keeping
 bankai's differentiators — `~/.claude` jsonl interop, `/goal` engine, auth —

@@ -15,7 +15,6 @@ import (
 	"syscall"
 
 	"github.com/estradoss/bankai/internal/bridge"
-	"github.com/estradoss/bankai/internal/codex"
 	"github.com/estradoss/bankai/internal/commands"
 	"github.com/estradoss/bankai/internal/config"
 	"github.com/estradoss/bankai/internal/cron"
@@ -108,14 +107,6 @@ func parseArgs(args []string) (opts, error) {
 }
 
 func main() {
-	// Codex OAuth subcommands: `bankai codex login|logout`.
-	if len(os.Args) >= 2 && os.Args[1] == "codex" {
-		if err := runCodex(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "bankai:", err)
-			os.Exit(1)
-		}
-		return
-	}
 	o, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bankai:", err)
@@ -170,9 +161,6 @@ func run(o opts) error {
 	subReg.Register(tools.WebSearchTool{})
 
 	client := provider.NewClient(cfg.Auth, cfg.Model)
-	if cfg.Codex != nil {
-		client.OpenAI = provider.NewCodexClient(cfg.Codex.AccessToken, cfg.Codex.AccountID())
-	}
 
 	toolReg := tools.NewRegistry()
 	toolReg.Register(bashTool)
@@ -579,30 +567,6 @@ func run(o opts) error {
 	return repl.Run(ctx)
 }
 
-func runCodex(args []string) error {
-	sub := "login"
-	if len(args) > 0 {
-		sub = args[0]
-	}
-	switch sub {
-	case "login":
-		toks, err := codex.Login()
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Codex login complete. Account %s. Run with CLAUDE_CODE_USE_OPENAI=1.\n", toks.AccountID)
-		return nil
-	case "logout":
-		if err := codex.Logout(); err != nil {
-			return err
-		}
-		fmt.Println("Codex credentials removed.")
-		return nil
-	default:
-		return fmt.Errorf("unknown codex subcommand %q (use: login | logout)", sub)
-	}
-}
-
 func oneShot(ctx context.Context, eng *engine.Engine, prompt string) error {
 	eng.OnText = func(chunk string) { fmt.Print(chunk) }
 	if err := eng.Submit(ctx, prompt); err != nil {
@@ -662,9 +626,6 @@ Interop:
   session back and forth: run one, exit, run the other with -c/--resume.
 
 Providers:
-  bankai codex login            log in to OpenAI Codex (subscription OAuth)
-  bankai codex logout           remove Codex credentials
-  CLAUDE_CODE_USE_OPENAI=1      route to Codex (Responses API) after login
   CLAUDE_CODE_USE_FOUNDRY=1     use ANTHROPIC_FOUNDRY_API_KEY
   ANTHROPIC_BASE_URL            point the Anthropic path at a gateway
 

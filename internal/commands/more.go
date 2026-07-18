@@ -223,11 +223,7 @@ func (d Doctor) Run(ctx Context, args string) (Result, error) {
 	b.WriteString("bankai doctor\n")
 	fmt.Fprintf(&b, "  auth source: %s\n", d.Source)
 	fmt.Fprintf(&b, "  model:       %s\n", ctx.Engine.Client.Model)
-	backend := "anthropic"
-	if ctx.Engine.Client.OpenAI != nil {
-		backend = "codex (openai responses)"
-	}
-	fmt.Fprintf(&b, "  backend:     %s\n", backend)
+	fmt.Fprintf(&b, "  backend:     anthropic (fantasy)\n")
 	fmt.Fprintf(&b, "  base url:    %s\n", ctx.Engine.Client.BaseURL)
 	fmt.Fprintf(&b, "  tools:       %d registered\n", len(ctx.Engine.Tools.All()))
 	fmt.Fprintf(&b, "  messages:    %d in context", len(ctx.Engine.Messages))

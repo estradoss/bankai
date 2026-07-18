@@ -2,6 +2,8 @@ BIN      := dist/bankai
 LINK     := $(HOME)/.local/bin/bankai
 PKG      := ./cmd/bankai
 GOFLAGS  := -trimpath
+# fantasy requires go 1.26; auto-download the toolchain if the local go is older.
+export GOTOOLCHAIN ?= auto
 
 .PHONY: all build install run test clean
 
