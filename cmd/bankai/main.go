@@ -20,6 +20,7 @@ import (
 	"github.com/estradoss/bankai/internal/mcp"
 	"github.com/estradoss/bankai/internal/memory"
 	"github.com/estradoss/bankai/internal/permission"
+	"github.com/estradoss/bankai/internal/plugins"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
 	"github.com/estradoss/bankai/internal/skills"
@@ -166,11 +167,21 @@ func run(o opts) error {
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
 	toolReg.Register(&tools.GetGoalTool{Store: goals})
 
-	// Skills: user (~/.claude/skills) + project (.claude/skills) SKILL.md files.
-	// Only expose the Skill tool when at least one skill is present.
 	home, _ := os.UserHomeDir()
 	wd, _ := os.Getwd()
+
+	// Plugins: ~/.claude/plugins/*/plugin.json. Each can contribute skills
+	// (skills/ subdir) and MCP servers (manifest mcpServers), merged below.
+	loadedPlugins := plugins.Load(home, nil)
+
+	// Skills: user (~/.claude/skills) + project (.claude/skills) SKILL.md files,
+	// plus any plugin skills/ dirs. Expose the Skill tool when any exist.
 	skillSet := skills.Load(home, wd)
+	for _, p := range loadedPlugins {
+		if p.SkillsDir != "" {
+			skillSet.AddPluginDir(p.SkillsDir)
+		}
+	}
 	if skillSet.Len() > 0 {
 		toolReg.Register(tools.SkillTool{Set: skillSet})
 	}
@@ -178,6 +189,11 @@ func run(o opts) error {
 	// MCP: dial configured stdio servers and bridge their tools in. Failures
 	// are reported but non-fatal so a bad server doesn't block startup.
 	mcpConfigs := mcp.LoadConfigs(home, wd)
+	for name, cfg := range plugins.CollectMCPServers(loadedPlugins) {
+		if _, exists := mcpConfigs[name]; !exists {
+			mcpConfigs[name] = cfg
+		}
+	}
 	var mcpMgr *mcp.Manager
 	if len(mcpConfigs) > 0 {
 		mgr, bridged, errs := mcp.Start(context.Background(), mcpConfigs)
@@ -311,6 +327,15 @@ func run(o opts) error {
 	cmdReg.Register(commands.PWD{})
 	cmdReg.Register(commands.Tools{})
 	cmdReg.Register(commands.System{})
+	var pluginLines []string
+	for _, p := range loadedPlugins {
+		v := p.Version
+		if v == "" {
+			v = "?"
+		}
+		pluginLines = append(pluginLines, fmt.Sprintf("%s@%s — %s", p.Name, v, p.Description))
+	}
+	cmdReg.Register(commands.Plugins{Lines: pluginLines})
 	if memStore != nil {
 		cmdReg.Register(commands.Memory{Index: memStore.Index})
 	}
@@ -409,7 +434,7 @@ Env:
 
 Slash commands (REPL):
   /help /goal /model /clear /dump /compact /cost /context
-  /todos /plan /permissions /limits /mcp /memory /pwd /tools /system
+  /todos /plan /permissions /limits /mcp /memory /pwd /tools /system /plugins
   /init /commit /review /doctor /exit
 
 Permissions:

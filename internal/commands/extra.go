@@ -38,6 +38,19 @@ func (Tools) Run(ctx Context, args string) (Result, error) {
 	return Result{Text: fmt.Sprintf("%d tools:\n  %s", len(names), strings.Join(names, "\n  "))}, nil
 }
 
+// Plugins lists loaded plugins (name, version, description). The list is
+// captured at startup and passed in so the command stays a pure reader.
+type Plugins struct{ Lines []string }
+
+func (Plugins) Name() string        { return "plugins" }
+func (Plugins) Description() string { return "List loaded plugins" }
+func (p Plugins) Run(ctx Context, args string) (Result, error) {
+	if len(p.Lines) == 0 {
+		return Result{Text: "no plugins loaded (install under ~/.claude/plugins/<name>/plugin.json)"}, nil
+	}
+	return Result{Text: fmt.Sprintf("%d plugin(s):\n  %s", len(p.Lines), strings.Join(p.Lines, "\n  "))}, nil
+}
+
 // System prints the active system prompt (useful for debugging goal/memory
 // injection). Truncated to keep the terminal readable.
 type System struct{}

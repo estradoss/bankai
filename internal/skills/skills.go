@@ -17,6 +17,7 @@ type Source string
 const (
 	SourceUser    Source = "user"    // ~/.claude/skills
 	SourceProject Source = "project" // <cwd>/.claude/skills
+	SourcePlugin  Source = "plugin"  // <plugin>/skills
 )
 
 // Skill is a single loaded skill.
@@ -47,6 +48,13 @@ func Load(homeDir, projectDir string) *Set {
 		s.loadDir(filepath.Join(projectDir, ".claude", "skills"), SourceProject)
 	}
 	return s
+}
+
+// AddPluginDir loads skills from a plugin's skills/ directory. Plugin skills
+// override user skills but not project skills of the same name (call before
+// project scan for that ordering; callers typically load plugins after Load).
+func (s *Set) AddPluginDir(dir string) {
+	s.loadDir(dir, SourcePlugin)
 }
 
 func (s *Set) loadDir(dir string, src Source) {

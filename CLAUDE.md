@@ -73,7 +73,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
        `.claude/skills`, SKILL.md frontmatter parse, project overrides user) + `Skill` tool that
        enumerates skills in its description and returns a skill's body on invocation. (Bundled
        skills + ToolSearch deferred-tool mechanism still TODO.)
-9. [ ] **Plugins / marketplace** — install/manage, plugin CLI commands. `src/services/plugins/`.
+9. [~] **Plugins** — `internal/plugins`: discovers ~/.claude/plugins/*/plugin.json (or
+       .claude-plugin/plugin.json), each contributing skills (skills/ dir, merged into the skill
+       set) and MCP servers (manifest mcpServers, namespaced + merged into MCP configs). Respects
+       disabled list; `/plugins` lists them. (Marketplace install/update, hooks/agents still TODO.)
 10. [ ] **Bedrock + Vertex providers** — AWS SigV4 + GCP ADC signing over the Anthropic Messages shape.
        `src/services/api/`.
 11. [ ] **Remote / server / coordinator** — WebSocket sessions, RemoteSessionManager, permission bridge,
