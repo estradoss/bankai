@@ -457,20 +457,59 @@ func (b *Bubble) renderSuggestions() string {
 	return suggBox.Width(b.width - 2).Render(strings.Join(rows, "\n"))
 }
 
+// resolveCommand maps a possibly-incomplete command name to a registered one:
+// exact match wins; otherwise the highlighted autocomplete suggestion; otherwise
+// the shortest-named prefix match. Returns the input unchanged if nothing fits.
+func (b *Bubble) resolveCommand(name string) string {
+	if _, ok := b.cmds.Get(name); ok {
+		return name
+	}
+	// Prefer what the autocomplete popup is highlighting.
+	if len(b.sugg) > 0 && b.suggIdx >= 0 && b.suggIdx < len(b.sugg) {
+		if strings.HasPrefix(b.sugg[b.suggIdx].Name(), name) {
+			return b.sugg[b.suggIdx].Name()
+		}
+	}
+	return resolvePrefix(b.cmds, name)
+}
+
+// resolvePrefix returns the shortest-named registered command whose name has the
+// given prefix, or name unchanged if there is an exact match or no match.
+func resolvePrefix(reg *commands.Registry, name string) string {
+	if _, ok := reg.Get(name); ok {
+		return name
+	}
+	best := ""
+	for _, c := range reg.List() {
+		if strings.HasPrefix(c.Name(), name) {
+			if best == "" || len(c.Name()) < len(best) {
+				best = c.Name()
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return name
+}
+
 // submit handles a line: either a slash command or a model turn.
 func (b *Bubble) submit(line string) tea.Cmd {
 	b.err = ""
-	// Interactive pickers: /model and /resume with no args open an in-TUI
-	// selector instead of running the command.
-	if line == "/model" {
-		b.openModelPicker()
-		return nil
-	}
-	if line == "/resume" {
-		b.openSessionPicker()
-		return nil
-	}
 	if name, args, ok := commands.Parse(line); ok {
+		// Resolve an incomplete command to its closest match (e.g. /res →
+		// /resume) so partial names still run.
+		name = b.resolveCommand(name)
+		// Interactive pickers: /model and /resume with no args open an in-TUI
+		// selector instead of running the command.
+		if args == "" && name == "model" {
+			b.openModelPicker()
+			return nil
+		}
+		if args == "" && name == "resume" {
+			b.openSessionPicker()
+			return nil
+		}
 		cmd, found := b.cmds.Get(name)
 		if !found {
 			b.appendUser(line)

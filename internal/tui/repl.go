@@ -75,6 +75,7 @@ func (r *REPL) Run(ctx context.Context) error {
 		}
 
 		if name, args, ok := commands.Parse(line); ok {
+			name = resolvePrefix(r.Cmds, name)
 			cmd, found := r.Cmds.Get(name)
 			if !found {
 				fmt.Fprintf(r.Out, "%sunknown command: /%s%s\n", ansiRed, name, ansiReset)
