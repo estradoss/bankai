@@ -116,6 +116,7 @@ var (
 // ApplyTheme repoints the TUI styles at a palette. Call before constructing the
 // Bubble model. Ported from vibelearn's themeable TUI.
 func ApplyTheme(p theme.Palette) {
+	crushStyle = p.Name == "crush"
 	footerStyle = footerStyle.Foreground(lipgloss.Color(p.Footer))
 	userStyle = userStyle.Foreground(lipgloss.Color(p.Accent))
 	errStyle = errStyle.Foreground(lipgloss.Color(p.Error))
@@ -180,11 +181,23 @@ func (b *Bubble) pushBlock(k blockKind, text string) {
 // mascot is a small ascii critter for the welcome banner.
 const mascot = "  ╭─────╮\n  │ ● ● │\n  ╰──┬──╯\n   bankai"
 
+// crushLogo is a charmtone-style block wordmark shown under the crush theme.
+const crushLogo = "▄▄▄ ▄▄▄ ▄ ▄ ▄▄▄ ▄ ▄\n█   █▄▀ █ █ ▀▄▀ █▄▀\n▀▄▄ ▀ ▀ ▀▄▀ ▀▄▀ ▀ ▀"
+
+// crushStyle is set by ApplyTheme when the active palette is "crush" — flips the
+// banner to the crush wordmark/layout without changing the engine or frontend.
+var crushStyle bool
+
 // banner renders the welcome header shown at the top of the scrollback.
 func (b *Bubble) renderBanner() string {
 	title := "bankai"
 	if b.version != "" {
 		title += " v" + b.version
+	}
+	art := mascot
+	if crushStyle {
+		title = "bankai · crush theme"
+		art = crushLogo
 	}
 	who := "Welcome" + func() string {
 		if b.user != "" {
@@ -200,7 +213,7 @@ func (b *Bubble) renderBanner() string {
 	left := []string{
 		headerStyle.Render(who),
 		"",
-		suggDim.Render(mascot),
+		headerStyle.Render(art),
 		"",
 		suggDim.Render(model),
 	}

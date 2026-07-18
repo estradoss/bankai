@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-// Palette is a set of semantic colors. Fields are ANSI-256 index strings.
+// Palette is a set of semantic colors. Fields are lipgloss.Color-compatible
+// strings — either an ANSI-256 index ("6") or a truecolor hex ("#6B50FF").
 type Palette struct {
 	Name    string
 	Accent  string // prompts, user marker
@@ -27,6 +28,9 @@ var themes = map[string]Palette{
 	"dracula":   {Name: "dracula", Accent: "141", Footer: "61", Error: "203", Tool: "212", Success: "84", Border: "141"},
 	"solarized": {Name: "solarized", Accent: "37", Footer: "242", Error: "160", Tool: "125", Success: "64", Border: "33"},
 	"mono":      {Name: "mono", Accent: "15", Footer: "8", Error: "7", Tool: "7", Success: "15", Border: "7"},
+	// crush mirrors Charm's crush charmtone palette (truecolor). Accent =
+	// Charple, tool = Malibu, success = Guac, error = Coral, subtle = Squid.
+	"crush": {Name: "crush", Accent: "#6B50FF", Footer: "#858392", Error: "#FF577D", Tool: "#00A4FF", Success: "#12C78F", Border: "#6B50FF"},
 }
 
 // Default is the fallback palette.
