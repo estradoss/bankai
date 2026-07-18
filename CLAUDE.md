@@ -52,7 +52,10 @@ Rough dependency order (do top-down; later items lean on earlier infra).
 6. [ ] **LSP client** — server manager, diagnostics registry, passive feedback, LSPTool. `src/services/lsp/`.
 7. [ ] **Memory subsystem** — SessionMemory, extractMemories, autoDream, memdir, team memory sync +
        secret scanner, contextCollapse. `src/services/`, `src/memdir/`.
-8. [ ] **Skills system** — bundled + user-dir skills, SkillTool, ToolSearch, skill loader. `src/skills/`.
+8. [~] **Skills system** — `internal/skills` loader (user `~/.claude/skills` + project
+       `.claude/skills`, SKILL.md frontmatter parse, project overrides user) + `Skill` tool that
+       enumerates skills in its description and returns a skill's body on invocation. (Bundled
+       skills + ToolSearch deferred-tool mechanism still TODO.)
 9. [ ] **Plugins / marketplace** — install/manage, plugin CLI commands. `src/services/plugins/`.
 10. [ ] **Bedrock + Vertex providers** — AWS SigV4 + GCP ADC signing over the Anthropic Messages shape.
        `src/services/api/`.

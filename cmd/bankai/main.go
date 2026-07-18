@@ -19,6 +19,7 @@ import (
 	"github.com/estradoss/bankai/internal/permission"
 	"github.com/estradoss/bankai/internal/provider"
 	"github.com/estradoss/bankai/internal/session"
+	"github.com/estradoss/bankai/internal/skills"
 	"github.com/estradoss/bankai/internal/task"
 	"github.com/estradoss/bankai/internal/tools"
 	"github.com/estradoss/bankai/internal/transcript"
@@ -154,6 +155,15 @@ func run(o opts) error {
 	toolReg.Register(&tools.CreateGoalTool{Store: goals})
 	toolReg.Register(&tools.UpdateGoalTool{Store: goals})
 	toolReg.Register(&tools.GetGoalTool{Store: goals})
+
+	// Skills: user (~/.claude/skills) + project (.claude/skills) SKILL.md files.
+	// Only expose the Skill tool when at least one skill is present.
+	home, _ := os.UserHomeDir()
+	wd, _ := os.Getwd()
+	skillSet := skills.Load(home, wd)
+	if skillSet.Len() > 0 {
+		toolReg.Register(tools.SkillTool{Set: skillSet})
+	}
 
 	eng := engine.New(client, toolReg, goals)
 
